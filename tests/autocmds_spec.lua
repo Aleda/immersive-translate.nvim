@@ -30,9 +30,31 @@ describe('timer_cleanup', function()
     vim.schedule(function()
       done = true
     end)
-    assert.is_true(vim.wait(100, function()
-      return done
-    end, 10))
+
+    local mocked_new_timer = uv and uv.new_timer
+    local mocked_defer_fn = vim.defer_fn
+    if uv and original_new_timer then
+      uv.new_timer = original_new_timer
+    end
+    if original_defer_fn then
+      vim.defer_fn = original_defer_fn
+    end
+
+    local ok, result = pcall(function()
+      return vim.wait(100, function()
+        return done
+      end, 10)
+    end)
+
+    if uv and mocked_new_timer then
+      uv.new_timer = mocked_new_timer
+    end
+    vim.defer_fn = mocked_defer_fn
+
+    if not ok then
+      error(result, 0)
+    end
+    assert.is_true(result)
   end
 
   local function trigger_autocmd(event, opts)
@@ -40,10 +62,43 @@ describe('timer_cleanup', function()
     flush_schedule()
   end
 
+  local function with_cursor_moved_ignored(callback)
+    local previous_eventignore = vim.o.eventignore
+
+    if previous_eventignore ~= 'all' then
+      local existing = {}
+      for event in string.gmatch(previous_eventignore, '[^,]+') do
+        existing[event] = true
+      end
+
+      local next_eventignore = previous_eventignore
+      for _, event in ipairs({ 'CursorMoved', 'CursorMovedI' }) do
+        if not existing[event] then
+          next_eventignore = next_eventignore == '' and event or next_eventignore .. ',' .. event
+        end
+      end
+      vim.o.eventignore = next_eventignore
+    end
+
+    local ok, result = pcall(callback)
+    vim.o.eventignore = previous_eventignore
+
+    if not ok then
+      error(result, 0)
+    end
+    return result
+  end
+
+  local function set_cursor(winid, pos)
+    with_cursor_moved_ignored(function()
+      vim.api.nvim_win_set_cursor(winid, pos)
+    end)
+  end
+
   local function set_source_position(pos)
     vim.api.nvim_set_current_win(win0)
     vim.api.nvim_set_current_buf(buffer0)
-    vim.api.nvim_win_set_cursor(win0, pos)
+    set_cursor(win0, pos)
   end
 
   local function trigger_timer(timer)
@@ -196,7 +251,7 @@ describe('timer_cleanup', function()
     vim.api.nvim_set_current_buf(buffer2)
     vim.api.nvim_set_current_win(win0)
     vim.api.nvim_set_current_buf(buffer0)
-    vim.api.nvim_win_set_cursor(win0, POS.comment_a)
+    set_cursor(win0, POS.comment_a)
 
     autocmds.setup_hover(config, parser, translate, ui)
   end)
@@ -379,7 +434,7 @@ describe('timer_cleanup', function()
 
     vim.api.nvim_set_current_win(win0)
     vim.api.nvim_set_current_buf(buffer1)
-    vim.api.nvim_win_set_cursor(win0, { 1, 0 })
+    set_cursor(win0, { 1, 0 })
     local close_calls_before = hover_state.close_calls
     trigger_autocmd('CursorMoved')
 
