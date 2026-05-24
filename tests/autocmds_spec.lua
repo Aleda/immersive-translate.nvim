@@ -163,6 +163,10 @@ describe('timer_cleanup', function()
         self.closed = true
       end
 
+      function timer:is_closing()
+        return self.closed
+      end
+
       table.insert(timers, timer)
       return timer
     end
