@@ -315,10 +315,11 @@ describe('timer_cleanup', function()
 
     local close_calls_before = hover_state.close_calls
     set_source_position(POS.code)
+    local deferred_callbacks_before = #deferred_callbacks
     vim.api.nvim_exec_autocmds('CursorMoved', {})
-    assert.equals(1, #deferred_callbacks)
-    trigger_deferred(1)
-    assert.is_true(hover_state.close_calls == 1 + close_calls_before)
+    assert.equals(deferred_callbacks_before + 1, #deferred_callbacks)
+    trigger_deferred(deferred_callbacks_before + 1)
+    assert.equals(close_calls_before + 1, hover_state.close_calls)
   end)
 
   it('replaces timer1 with timer2 and keeps timer1 inactive', function()
@@ -500,13 +501,14 @@ describe('timer_cleanup', function()
 
     local close_calls_before = hover_state.close_calls
     set_source_position(POS.code)
+    local deferred_callbacks_before = #deferred_callbacks
     vim.api.nvim_exec_autocmds('CursorMoved', {})
-    assert.equals(1, #deferred_callbacks)
+    assert.equals(deferred_callbacks_before + 1, #deferred_callbacks)
 
     hover_state.winid = win2
     vim.api.nvim_set_current_win(win2)
     vim.api.nvim_set_current_buf(buffer2)
-    trigger_deferred(1)
+    trigger_deferred(deferred_callbacks_before + 1)
 
     assert.equals(close_calls_before, hover_state.close_calls)
   end)
