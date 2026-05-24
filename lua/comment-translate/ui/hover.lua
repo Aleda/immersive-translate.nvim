@@ -7,14 +7,29 @@ function M.bufnr()
   return hover_bufnr
 end
 
+function M.winid()
+  return hover_winid
+end
+
+function M.is_hover_window(winid)
+  return hover_winid ~= nil and winid == hover_winid and vim.api.nvim_win_is_valid(hover_winid)
+end
+
+function M.is_hover_buffer(bufnr)
+  return hover_bufnr ~= nil and bufnr == hover_bufnr and vim.api.nvim_buf_is_valid(hover_bufnr)
+end
+
 function M.close()
-  if hover_winid and vim.api.nvim_win_is_valid(hover_winid) then
-    vim.api.nvim_win_close(hover_winid, true)
-    hover_winid = nil
+  local winid = hover_winid
+  local bufnr = hover_bufnr
+  hover_winid = nil
+  hover_bufnr = nil
+
+  if winid and vim.api.nvim_win_is_valid(winid) then
+    vim.api.nvim_win_close(winid, true)
   end
-  if hover_bufnr and vim.api.nvim_buf_is_valid(hover_bufnr) then
-    vim.api.nvim_buf_delete(hover_bufnr, { force = true })
-    hover_bufnr = nil
+  if bufnr and vim.api.nvim_buf_is_valid(bufnr) then
+    vim.api.nvim_buf_delete(bufnr, { force = true })
   end
 end
 
@@ -74,6 +89,7 @@ function M.show(text, opts)
     height = height,
     style = 'minimal',
     border = opts.border or 'rounded',
+    focusable = true,
     zindex = 50,
   })
 

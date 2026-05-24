@@ -20,6 +20,41 @@ local function cleanup_timer(bufnr)
   end
 end
 
+local function is_hover_buffer(ui, bufnr)
+  if ui.hover.is_hover_buffer and ui.hover.is_hover_buffer(bufnr) then
+    return true
+  end
+
+  return ui.hover.bufnr and bufnr == ui.hover.bufnr()
+end
+
+local function is_hover_context(ui)
+  local current_win = vim.api.nvim_get_current_win()
+  local current_buf = vim.api.nvim_get_current_buf()
+
+  if ui.hover.is_hover_window and ui.hover.is_hover_window(current_win) then
+    return true
+  end
+  if is_hover_buffer(ui, current_buf) then
+    return true
+  end
+  if ui.hover.winid and current_win == ui.hover.winid() then
+    return true
+  end
+  return current_buf == ui.hover.bufnr()
+end
+
+local function close_stale_hover(ui)
+  if is_hover_context(ui) then
+    return
+  end
+
+  local hover_bufnr = ui.hover.bufnr()
+  if hover_bufnr and vim.api.nvim_get_current_buf() ~= hover_bufnr then
+    ui.hover.close()
+  end
+end
+
 function M.setup_hover(config, parser, translate, ui)
   local hover_group = vim.api.nvim_create_augroup('CommentTranslateHover', { clear = true })
 
@@ -38,6 +73,9 @@ function M.setup_hover(config, parser, translate, ui)
       if not config.config.hover.auto then
         return
       end
+      if is_hover_context(ui) then
+        return
+      end
 
       local bufnr = vim.api.nvim_get_current_buf()
       cleanup_timer(bufnr)
@@ -50,6 +88,9 @@ function M.setup_hover(config, parser, translate, ui)
         vim.schedule(function()
           local ok, err = pcall(function()
             if hover_timers[bufnr] == timer then
+              if is_hover_context(ui) then
+                return
+              end
               local text, _ = parser.get_text_at_cursor()
               if text then
                 translate.translate(text, nil, nil, function(result)
@@ -73,10 +114,16 @@ function M.setup_hover(config, parser, translate, ui)
   vim.api.nvim_create_autocmd({ 'CursorMoved', 'CursorMovedI' }, {
     group = hover_group,
     callback = function()
+      if is_hover_context(ui) then
+        return
+      end
       local bufnr = vim.api.nvim_get_current_buf()
       cleanup_timer(bufnr)
 
       vim.defer_fn(function()
+        if is_hover_context(ui) then
+          return
+        end
         local text, _ = parser.get_text_at_cursor()
         if not text then
           ui.hover.close()
@@ -89,9 +136,13 @@ function M.setup_hover(config, parser, translate, ui)
     group = hover_group,
     callback = function(args)
       cleanup_timer(args.buf)
-      if ui.hover.bufnr() ~= args.buf then
-        ui.hover.close()
-      end
+    end,
+  })
+
+  vim.api.nvim_create_autocmd({ 'BufEnter', 'WinEnter' }, {
+    group = hover_group,
+    callback = function()
+      close_stale_hover(ui)
     end,
   })
 
@@ -107,7 +158,8 @@ function M.setup_hover(config, parser, translate, ui)
     group = hover_group,
     callback = function(args)
       cleanup_timer(args.buf)
-      if ui.hover.bufnr() ~= args.buf then
+      local hover_bufnr = ui.hover.bufnr()
+      if hover_bufnr and hover_bufnr ~= args.buf then
         ui.hover.close()
       end
     end,
@@ -131,6 +183,10 @@ function M.setup_immersive(commands, ui)
     group = immersive_group,
     callback = function()
       local bufnr = vim.api.nvim_get_current_buf()
+      if is_hover_buffer(ui, bufnr) then
+        return
+      end
+
       if commands.is_immersive_globally_enabled() and not commands.is_immersive_enabled(bufnr) then
         commands.enable_immersive(bufnr)
       elseif commands.is_immersive_enabled(bufnr) then

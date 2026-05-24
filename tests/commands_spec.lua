@@ -218,6 +218,14 @@ describe('ui.hover', function()
       assert.is_not_nil(hover_bufnr)
       assert.is_true(vim.api.nvim_buf_is_valid(hover_bufnr))
 
+      local hover_winid = hover.winid()
+      assert.is_not_nil(hover_winid)
+      assert.is_true(vim.api.nvim_win_is_valid(hover_winid))
+      assert.is_true(vim.api.nvim_win_get_config(hover_winid).focusable)
+      assert.is_true(hover.is_hover_window(hover_winid))
+      assert.is_true(hover.is_hover_buffer(hover_bufnr))
+      assert.is_false(hover.is_hover_buffer(bufnr))
+
       local lines = vim.api.nvim_buf_get_lines(hover_bufnr, 0, -1, false)
       assert.equals('Hello World', lines[1])
     end)
@@ -257,6 +265,19 @@ describe('ui.hover', function()
 
       hover.close()
       assert.is_nil(hover.bufnr())
+      assert.is_nil(hover.winid())
+    end)
+
+    it('should clear stale state when hover window was already closed', function()
+      hover.show('Test')
+      local hover_winid = hover.winid()
+      assert.is_not_nil(hover_winid)
+
+      vim.api.nvim_win_close(hover_winid, true)
+      hover.close()
+
+      assert.is_nil(hover.bufnr())
+      assert.is_nil(hover.winid())
     end)
 
     it('should handle multiple close calls', function()
