@@ -20,6 +20,14 @@ local function cleanup_timer(bufnr)
   end
 end
 
+local function is_hover_buffer(ui, bufnr)
+  if ui.hover.is_hover_buffer and ui.hover.is_hover_buffer(bufnr) then
+    return true
+  end
+
+  return ui.hover.bufnr and bufnr == ui.hover.bufnr()
+end
+
 local function is_hover_context(ui)
   local current_win = vim.api.nvim_get_current_win()
   local current_buf = vim.api.nvim_get_current_buf()
@@ -27,7 +35,7 @@ local function is_hover_context(ui)
   if ui.hover.is_hover_window and ui.hover.is_hover_window(current_win) then
     return true
   end
-  if ui.hover.is_hover_buffer and ui.hover.is_hover_buffer(current_buf) then
+  if is_hover_buffer(ui, current_buf) then
     return true
   end
   if ui.hover.winid and current_win == ui.hover.winid() then
@@ -175,6 +183,10 @@ function M.setup_immersive(commands, ui)
     group = immersive_group,
     callback = function()
       local bufnr = vim.api.nvim_get_current_buf()
+      if is_hover_buffer(ui, bufnr) then
+        return
+      end
+
       if commands.is_immersive_globally_enabled() and not commands.is_immersive_enabled(bufnr) then
         commands.enable_immersive(bufnr)
       elseif commands.is_immersive_enabled(bufnr) then

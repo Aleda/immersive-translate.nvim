@@ -452,3 +452,111 @@ describe('timer_cleanup', function()
     assert.equals(close_calls_before, hover_state.close_calls)
   end)
 end)
+
+describe('immersive hover buffer guard', function()
+  local autocmds
+  local commands
+  local ui
+  local current_bufnr
+  local hover_bufnr
+  local normal_bufnr
+  local enabled
+  local calls
+
+  local function reset_groups()
+    pcall(vim.api.nvim_del_augroup_by_name, 'CommentTranslateHover')
+    pcall(vim.api.nvim_del_augroup_by_name, 'CommentTranslateImmersive')
+  end
+
+  before_each(function()
+    reset_groups()
+
+    package.loaded['comment-translate.autocmds'] = nil
+    autocmds = require('comment-translate.autocmds')
+
+    enabled = {}
+    calls = {
+      is_enabled = {},
+      enable = {},
+      update = {},
+      cleanup = {},
+    }
+
+    commands = {
+      is_immersive_globally_enabled = function()
+        return true
+      end,
+      is_immersive_enabled = function(bufnr)
+        table.insert(calls.is_enabled, bufnr)
+        return enabled[bufnr] == true
+      end,
+      enable_immersive = function(bufnr)
+        table.insert(calls.enable, bufnr)
+        enabled[bufnr] = true
+      end,
+      update_immersive = function(bufnr)
+        table.insert(calls.update, bufnr)
+      end,
+      cleanup_buffer = function(bufnr)
+        table.insert(calls.cleanup, bufnr)
+      end,
+    }
+
+    current_bufnr = vim.api.nvim_create_buf(false, true)
+    hover_bufnr = vim.api.nvim_create_buf(false, true)
+    normal_bufnr = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_set_current_buf(current_bufnr)
+
+    ui = {
+      hover = {
+        bufnr = function()
+          return hover_bufnr
+        end,
+        is_hover_buffer = function(bufnr)
+          return bufnr == hover_bufnr
+        end,
+      },
+      virtual_text = {
+        clear_buf = function() end,
+      },
+    }
+
+    autocmds.setup_immersive(commands, ui)
+  end)
+
+  after_each(function()
+    reset_groups()
+
+    for _, bufnr in ipairs({ current_bufnr, hover_bufnr, normal_bufnr }) do
+      if bufnr and vim.api.nvim_buf_is_valid(bufnr) then
+        vim.api.nvim_buf_delete(bufnr, { force = true })
+      end
+    end
+  end)
+
+  it('does not enable immersive mode for hover buffers on BufEnter', function()
+    vim.api.nvim_set_current_buf(hover_bufnr)
+
+    assert.same({}, calls.is_enabled)
+    assert.same({}, calls.enable)
+    assert.same({}, calls.update)
+  end)
+
+  it('does not update immersive mode for already-enabled hover buffers on BufEnter', function()
+    enabled[hover_bufnr] = true
+
+    vim.api.nvim_set_current_buf(hover_bufnr)
+
+    assert.same({}, calls.is_enabled)
+    assert.same({}, calls.enable)
+    assert.same({}, calls.update)
+  end)
+
+  it('still enables immersive mode for normal buffers on BufEnter', function()
+    vim.api.nvim_set_current_buf(normal_bufnr)
+
+    assert.same({ normal_bufnr }, calls.is_enabled)
+    assert.same({ normal_bufnr }, calls.enable)
+    assert.same({}, calls.update)
+  end)
+end)
