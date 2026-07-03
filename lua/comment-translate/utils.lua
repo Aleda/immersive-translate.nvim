@@ -40,16 +40,6 @@ function M.is_empty(text)
   return text == nil or M.trim(text) == ''
 end
 
----@param text string
----@return string
-function M.url_encode(text)
-  text = text:gsub('([^%w%-%.%_%~\n])', function(c)
-    return string.format('%%%02X', string.byte(c))
-  end)
-  text = text:gsub('\n', '%%0A')
-  return text
-end
-
 ---@param lang string
 ---@return string
 function M.normalize_lang_code(lang)

@@ -31,6 +31,7 @@ This plugin gives you control over where your text goes:
 
 - `translate_service = 'google'` or hosted `llm` providers: text is sent to the configured remote service.
 - `llm.provider = 'ollama'` with the default local endpoint keeps translation local; if `llm.endpoint` is set to a remote host, text is sent there.
+- API keys and source text/request bodies are passed to `curl` through stdin config, not through process arguments.
 - Cache is in-memory only and is not persisted to disk by this plugin.
 
 For sensitive repositories, local Ollama models are the recommended setup.
@@ -101,11 +102,13 @@ vim.keymap.set('n', '<leader>th', '<cmd>CommentTranslateHover<CR>', { silent = t
 :CommentTranslateReplace
 ```
 
-## Configuration
+## Configuration Example
+
+If `target_language` is omitted, comment-translate uses your system locale and falls back to `en`.
 
 ```lua
 require('comment-translate').setup({
-  target_language = 'ja',
+  target_language = 'ja', -- example override; default is system locale or 'en'
   translate_service = 'google', -- 'google' or 'llm'
 
   hover = {
@@ -123,17 +126,20 @@ require('comment-translate').setup({
     max_entries = 1000,
   },
 
+  max_length = 5000,
+
   targets = {
     comment = true,
     string = true,
   },
 
   llm = {
-    provider = 'ollama', -- 'openai' | 'anthropic' | 'gemini' | 'ollama'
-    model = 'translategemma:4b',
-    api_key = nil, -- not required for ollama
+    provider = 'openai', -- 'openai' | 'anthropic' | 'gemini' | 'ollama'
+    model = 'gpt-5.2',
+    api_key = nil, -- can also use provider-specific env vars
     timeout = 20,
-    endpoint = 'http://localhost:11434/api/chat', -- optional
+    endpoint = nil, -- optional, http(s) only
+    system_prompt = nil,
   },
 
   keymaps = {

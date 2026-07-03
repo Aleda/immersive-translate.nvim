@@ -16,6 +16,25 @@ local function check_module(module_name)
   return ok
 end
 
+---@param endpoint string?
+---@return boolean
+local function is_loopback_endpoint(endpoint)
+  if not endpoint or utils.trim(endpoint) == '' then
+    return true
+  end
+
+  endpoint = utils.trim(endpoint):lower()
+  local authority = endpoint:match('^https?://([^/?#]*)')
+  if not authority or authority == '' then
+    return false
+  end
+
+  local host_port = authority:match('@([^@]*)$') or authority
+  local host = host_port:match('^(%[[^%]]+%])') or host_port:match('^([^:]*)')
+
+  return host == 'localhost' or host == '127.0.0.1' or host == '[::1]'
+end
+
 ---@return string
 local function get_nvim_version()
   local v = vim.version()
@@ -144,11 +163,14 @@ function M.check()
     })
   end
 
+  local loaded_config = nil
+
   if check_module('comment-translate') then
     vim.health.ok('comment-translate is loaded')
 
     local config = require('comment-translate.config')
     if config.config then
+      loaded_config = config.config
       vim.health.ok('Plugin is configured')
       vim.health.info('Target language: ' .. (config.config.target_language or 'not set'))
       vim.health.info('Translate service: ' .. (config.config.translate_service or 'not set'))
@@ -195,7 +217,17 @@ function M.check()
     vim.health.error('comment-translate failed to load')
   end
 
-  vim.health.info('Note: Translation requires internet connectivity')
+  if
+    loaded_config
+    and loaded_config.translate_service == 'llm'
+    and loaded_config.llm
+    and loaded_config.llm.provider == 'ollama'
+    and is_loopback_endpoint(loaded_config.llm.endpoint)
+  then
+    vim.health.info('Note: Local Ollama translation does not require internet connectivity')
+  else
+    vim.health.info('Note: Translation requires network access to the configured service')
+  end
 end
 
 return M

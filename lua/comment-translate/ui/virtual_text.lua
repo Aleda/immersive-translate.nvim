@@ -43,6 +43,13 @@ function M.show_inline(bufnr, line, translated_text)
     return
   end
 
+  if not bufnr or not vim.api.nvim_buf_is_valid(bufnr) then
+    if bufnr and extmarks[bufnr] then
+      extmarks[bufnr] = nil
+    end
+    return
+  end
+
   if extmarks[bufnr] and extmarks[bufnr][line] then
     vim.api.nvim_buf_del_extmark(bufnr, ns_id, extmarks[bufnr][line])
   end

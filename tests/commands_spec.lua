@@ -90,6 +90,167 @@ describe('commands', function()
   end)
 end)
 
+describe('replace selection safety', function()
+  local commands
+  local bufnr
+  local original_notify
+  local notify_messages
+  local translate_calls
+  local pending_callback
+
+  local function reset_modules(fake_translate)
+    package.loaded['comment-translate.commands'] = nil
+    package.loaded['comment-translate.config'] = nil
+    package.loaded['comment-translate.parser'] = nil
+    package.loaded['comment-translate.translate'] = fake_translate
+    package.loaded['comment-translate.ui'] = nil
+    package.loaded['comment-translate.ui.hover'] = nil
+    package.loaded['comment-translate.ui.virtual_text'] = nil
+  end
+
+  local function set_selection(line, start_col, end_col)
+    vim.api.nvim_buf_set_mark(bufnr, '<', line, start_col, {})
+    vim.api.nvim_buf_set_mark(bufnr, '>', line, end_col, {})
+  end
+
+  before_each(function()
+    translate_calls = {}
+    pending_callback = nil
+    local fake_translate = {
+      translate = function(text, target_lang, source_lang, callback)
+        table.insert(translate_calls, {
+          text = text,
+          target_lang = target_lang,
+          source_lang = source_lang,
+        })
+        pending_callback = callback
+      end,
+    }
+
+    reset_modules(fake_translate)
+
+    local config = require('comment-translate.config')
+    config.reset()
+    commands = require('comment-translate.commands')
+
+    notify_messages = {}
+    original_notify = vim.notify
+    vim.notify = function(msg, level)
+      table.insert(notify_messages, { msg = msg, level = level })
+    end
+
+    bufnr = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_set_current_buf(bufnr)
+  end)
+
+  after_each(function()
+    vim.notify = original_notify
+    if bufnr and vim.api.nvim_buf_is_valid(bufnr) then
+      vim.api.nvim_buf_delete(bufnr, { force = true })
+    end
+  end)
+
+  it('should replace a multibyte visual selection using byte columns', function()
+    local prefix = 'before '
+    local selected = 'こんにちは'
+    vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { prefix .. selected .. ' after' })
+    set_selection(1, #prefix, #prefix + #selected - 1)
+
+    commands.replace_selection()
+    pending_callback('hello')
+
+    assert.equals(selected, translate_calls[1].text)
+    assert.same({ 'before hello after' }, vim.api.nvim_buf_get_lines(bufnr, 0, -1, false))
+  end)
+
+  it('should not replace when the buffer changed before translation returns', function()
+    vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { 'alpha beta' })
+    set_selection(1, 0, 4)
+
+    commands.replace_selection()
+    vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { 'user changed beta' })
+    pending_callback('translated')
+
+    assert.equals('alpha', translate_calls[1].text)
+    assert.same({ 'user changed beta' }, vim.api.nvim_buf_get_lines(bufnr, 0, -1, false))
+    assert.matches('buffer changed', notify_messages[#notify_messages].msg)
+  end)
+end)
+
+describe('immersive async lifecycle', function()
+  local commands
+  local bufnr
+  local translate_callbacks
+  local shown
+
+  local function reset_modules(fake_parser, fake_translate, fake_ui)
+    package.loaded['comment-translate.commands'] = nil
+    package.loaded['comment-translate.config'] = nil
+    package.loaded['comment-translate.parser'] = fake_parser
+    package.loaded['comment-translate.translate'] = fake_translate
+    package.loaded['comment-translate.ui'] = fake_ui
+  end
+
+  before_each(function()
+    translate_callbacks = {}
+    shown = {}
+
+    local fake_parser = {
+      get_all_comments = function()
+        return {
+          [0] = 'comment A',
+        }
+      end,
+    }
+    local fake_translate = {
+      translate = function(_, _, _, callback)
+        table.insert(translate_callbacks, callback)
+      end,
+    }
+    local fake_ui = {
+      hover = {
+        close = function() end,
+      },
+      virtual_text = {
+        clear_buf = function() end,
+        clear_all = function() end,
+        show = function(target_bufnr, line, text)
+          table.insert(shown, {
+            bufnr = target_bufnr,
+            line = line,
+            text = text,
+          })
+        end,
+      },
+    }
+
+    reset_modules(fake_parser, fake_translate, fake_ui)
+    local config = require('comment-translate.config')
+    config.reset()
+    commands = require('comment-translate.commands')
+
+    bufnr = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_set_current_buf(bufnr)
+  end)
+
+  after_each(function()
+    if bufnr and vim.api.nvim_buf_is_valid(bufnr) then
+      vim.api.nvim_buf_delete(bufnr, { force = true })
+    end
+  end)
+
+  it('should ignore immersive translation results after the buffer is deleted', function()
+    commands.enable_immersive(bufnr)
+
+    assert.equals(1, #translate_callbacks)
+
+    vim.api.nvim_buf_delete(bufnr, { force = true })
+    translate_callbacks[1]('translated A')
+
+    assert.same({}, shown)
+  end)
+end)
+
 describe('plugin commands', function()
   local bufnr
   local health_bufnr
@@ -99,6 +260,7 @@ describe('plugin commands', function()
   local original_get_parser
 
   before_each(function()
+    package.loaded['comment-translate'] = nil
     package.loaded['comment-translate.health'] = nil
     original_loaded = vim.g.loaded_comment_translate
     vim.g.loaded_comment_translate = nil
@@ -152,6 +314,22 @@ describe('plugin commands', function()
     vim.api.nvim_cmd({ cmd = 'CommentTranslateHealth' }, {})
 
     assert.equals(bufnr, parser_bufnr)
+  end)
+
+  it('should not load heavy modules during runtime plugin load', function()
+    assert.is_nil(package.loaded['comment-translate'])
+    assert.is_nil(package.loaded['comment-translate.health'])
+  end)
+
+  it('should keep runtime plugin loading idempotent', function()
+    local setup_command_before = vim.api.nvim_get_commands({})['CommentTranslateSetup']
+    local health_command_before = vim.api.nvim_get_commands({})['CommentTranslateHealth']
+
+    dofile('plugin/comment-translate.lua')
+
+    local commands_after = vim.api.nvim_get_commands({})
+    assert.same(setup_command_before, commands_after['CommentTranslateSetup'])
+    assert.same(health_command_before, commands_after['CommentTranslateHealth'])
   end)
 end)
 
@@ -320,6 +498,12 @@ describe('ui.virtual_text', function()
     it('should add virtual text', function()
       assert.has_no.errors(function()
         virtual_text.show(bufnr, 0, 'Translated text')
+      end)
+    end)
+
+    it('should ignore invalid buffers without error', function()
+      assert.has_no.errors(function()
+        virtual_text.show(99999, 0, 'Translated text')
       end)
     end)
   end)

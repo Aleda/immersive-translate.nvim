@@ -164,9 +164,25 @@ function M.replace_selection()
     return
   end
 
+  local changedtick = vim.b[bufnr].changedtick
+
   translate.translate(text, nil, nil, function(result)
     if not result then
       vim.notify('Translation failed', vim.log.levels.ERROR)
+      return
+    end
+
+    if not vim.api.nvim_buf_is_valid(bufnr) then
+      return
+    end
+
+    if vim.b[bufnr].changedtick ~= changedtick then
+      vim.notify('Skipped replacement because the buffer changed', vim.log.levels.WARN)
+      return
+    end
+
+    if not vim.bo[bufnr].modifiable then
+      vim.notify('Skipped replacement because the buffer is not modifiable', vim.log.levels.WARN)
       return
     end
 
@@ -213,6 +229,11 @@ function M.update_immersive(bufnr)
     return
   end
 
+  if not vim.api.nvim_buf_is_valid(bufnr) then
+    immersive_state[bufnr] = nil
+    return
+  end
+
   local token = bump_token(state)
   ui.virtual_text.clear_buf(bufnr)
 
@@ -250,6 +271,10 @@ function M.update_immersive(bufnr)
 
     translate.translate(item.text, nil, nil, function(result)
       if token ~= state.token then
+        return
+      end
+
+      if not vim.api.nvim_buf_is_valid(bufnr) then
         return
       end
 

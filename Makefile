@@ -26,7 +26,7 @@ clean:
 # Generate documentation tags
 docs:
 	@echo "Generating help tags..."
-	nvim --headless -c "helptags doc/" -c "qa"
+	nvim --headless -i NONE -c "helptags doc/" -c "qa"
 
 # Health check
 health: $(PLENARY_DIR)

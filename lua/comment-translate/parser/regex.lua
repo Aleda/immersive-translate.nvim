@@ -18,10 +18,10 @@ local inline_comment_patterns = {
   '%s/%*+%s*(.-)%s*%*+/',
 }
 
-local string_patterns = {
-  '"([^"]*)"',
-  "'([^']*)'",
-  '`([^`]*)`',
+local string_delimiters = {
+  '"',
+  "'",
+  '`',
 }
 
 -- Block comment delimiters: { start_pattern, end_pattern, start_literal, end_literal }
@@ -161,10 +161,32 @@ function M.get_all_comments(bufnr)
   return comments
 end
 
+---@param line_text string
+---@param pattern string
+---@param target_col number?
+---@return string?
+local function match_comment_at_col(line_text, pattern, target_col)
+  local search_start = 1
+
+  while true do
+    local start_pos, end_pos, comment = line_text:find(pattern, search_start)
+    if not start_pos then
+      return nil
+    end
+
+    if not target_col or (target_col >= start_pos and target_col <= end_pos) then
+      return comment
+    end
+
+    search_start = end_pos + 1
+  end
+end
+
 ---@param bufnr number
 ---@param line number
+---@param col? number 0-based byte column. When provided, inline comments must contain the cursor.
 ---@return string?
-function M.get_comment_at_line(bufnr, line)
+function M.get_comment_at_line(bufnr, line, col)
   if not config.config.targets.comment then
     return nil
   end
@@ -174,6 +196,8 @@ function M.get_comment_at_line(bufnr, line)
     return nil
   end
 
+  local target_col = col and (col + 1) or nil
+
   for _, pattern in ipairs(line_comment_patterns) do
     local comment = line_text:match(pattern)
     if comment then
@@ -182,13 +206,50 @@ function M.get_comment_at_line(bufnr, line)
   end
 
   for _, pattern in ipairs(inline_comment_patterns) do
-    local comment = line_text:match(pattern)
+    local comment = match_comment_at_col(line_text, pattern, target_col)
     if comment then
       return comment
     end
   end
 
   return nil
+end
+
+---@param line_text string
+---@param delimiter string
+---@param target_col number
+---@return string?
+local function get_delimited_string_at_col(line_text, delimiter, target_col)
+  local search_start = 1
+
+  while true do
+    local start_pos = line_text:find(delimiter, search_start, true)
+    if not start_pos then
+      return nil
+    end
+
+    local pos = start_pos + 1
+    local escaped = false
+    while pos <= #line_text do
+      local char = line_text:sub(pos, pos)
+      if escaped then
+        escaped = false
+      elseif char == '\\' then
+        escaped = true
+      elseif char == delimiter then
+        if target_col >= start_pos and target_col <= pos then
+          return line_text:sub(start_pos + 1, pos - 1)
+        end
+        search_start = pos + 1
+        break
+      end
+      pos = pos + 1
+    end
+
+    if pos > #line_text then
+      return nil
+    end
+  end
 end
 
 ---@param bufnr number
@@ -207,19 +268,10 @@ function M.get_string_at_position(bufnr, line, col)
 
   local target_col = (col or 0) + 1
 
-  for _, pattern in ipairs(string_patterns) do
-    local search_start = 1
-    while true do
-      local s, e, match = line_text:find(pattern, search_start)
-      if not s then
-        break
-      end
-
-      if target_col >= s and target_col <= e then
-        return match
-      end
-
-      search_start = e + 1
+  for _, delimiter in ipairs(string_delimiters) do
+    local match = get_delimited_string_at_col(line_text, delimiter, target_col)
+    if match then
+      return match
     end
   end
 

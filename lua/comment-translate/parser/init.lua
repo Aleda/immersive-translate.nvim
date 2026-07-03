@@ -81,7 +81,7 @@ function M.get_text_at_cursor(bufnr)
     return cleaned, node_type
   end
 
-  local comment = regex.get_comment_at_line(bufnr, row)
+  local comment = regex.get_comment_at_line(bufnr, row, col)
   if comment then
     local cleaned = normalize_text(clean_comment_text(comment, bufnr), 'comment')
     if utils.is_empty(cleaned) then
