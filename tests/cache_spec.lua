@@ -151,6 +151,12 @@ describe('cache', function()
       cache.set('b', '2', 'ja')
       assert.equals(2, cache.size())
     end)
+
+    it('should not expose cache keys or source text through stats', function()
+      cache.set('secret source text', 'translated', 'ja')
+
+      assert.is_nil(cache.stats)
+    end)
   end)
 
   describe('disabled cache', function()

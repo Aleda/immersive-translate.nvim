@@ -1,5 +1,6 @@
 local M = {}
 local cache = require('comment-translate.translate.cache')
+local curl_config = require('comment-translate.translate.curl_config')
 local utils = require('comment-translate.utils')
 
 ---@return boolean, table?
@@ -77,39 +78,30 @@ function M.translate(text, target_lang, source_lang, callback)
   target_lang = utils.normalize_lang_code(target_lang)
   source_lang = utils.normalize_lang_code(source_lang)
 
-  local encoded_text = utils.url_encode(text)
   local url = string.format(
-    'https://translate.googleapis.com/translate_a/single?client=gtx&sl=%s&tl=%s&dt=t&q=%s',
+    'https://translate.googleapis.com/translate_a/single?client=gtx&sl=%s&tl=%s&dt=t',
     source_lang,
-    target_lang,
-    encoded_text
+    target_lang
   )
-
-  local stderr_output = {}
+  local request_config = curl_config.build({
+    'silent',
+    'show-error',
+    'fail',
+    'get',
+    curl_config.option('max-time', '10'),
+    curl_config.option('data-urlencode', 'q=' .. text),
+    curl_config.option('url', url),
+  })
 
   Job:new({
     command = 'curl',
-    args = {
-      '--silent',
-      '--show-error',
-      '--fail',
-      '--max-time',
-      '10',
-      url,
-    },
-    on_stderr = function(_, data)
-      if data and data ~= '' then
-        table.insert(stderr_output, data)
-      end
-    end,
+    args = { '--config', '-' },
+    writer = request_config,
+    on_stderr = function() end,
     on_exit = function(j, exit_code)
       vim.schedule(function()
         if exit_code ~= 0 then
-          local err_msg = 'comment-translate: Translation failed (curl error)'
-          if #stderr_output > 0 then
-            err_msg = err_msg .. ': ' .. table.concat(stderr_output, ' ')
-          end
-          vim.notify(err_msg, vim.log.levels.WARN)
+          vim.notify('comment-translate: Translation failed (curl error)', vim.log.levels.WARN)
           callback(nil)
           return
         end

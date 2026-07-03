@@ -69,26 +69,67 @@ describe('translate.llm', function()
     return value
   end
 
-  local function extract_request_body(args)
-    for i = 1, #args do
-      if args[i] == '-d' then
-        return vim.fn.json_decode(args[i + 1])
+  local function decode_curl_config_string(value)
+    local result = {}
+    local i = 1
+    while i <= #value do
+      local char = value:sub(i, i)
+      if char == '\\' then
+        local next_char = value:sub(i + 1, i + 1)
+        if next_char == 'n' then
+          table.insert(result, '\n')
+        elseif next_char == 'r' then
+          table.insert(result, '\r')
+        elseif next_char == 't' then
+          table.insert(result, '\t')
+        else
+          table.insert(result, next_char)
+        end
+        i = i + 2
+      else
+        table.insert(result, char)
+        i = i + 1
       end
     end
-    return nil
+    return table.concat(result, '')
   end
 
-  local function has_arg(args, expected)
-    for _, arg in ipairs(args) do
-      if arg == expected then
+  local function config_values(writer, option)
+    local values = {}
+    local prefix = option .. ' = "'
+    for line in writer:gmatch('[^\n]+') do
+      if line:sub(1, #prefix) == prefix then
+        table.insert(values, decode_curl_config_string(line:sub(#prefix + 1, -2)))
+      end
+    end
+    return values
+  end
+
+  local function config_value(writer, option)
+    return config_values(writer, option)[1]
+  end
+
+  local function has_config_value(writer, option, expected)
+    for _, value in ipairs(config_values(writer, option)) do
+      if value == expected then
         return true
       end
     end
     return false
   end
 
-  local function last_arg(args)
-    return args[#args]
+  local function extract_request_body(opts)
+    return vim.fn.json_decode(config_value(opts.writer, 'data-raw'))
+  end
+
+  local function assert_uses_stdin_config(opts)
+    assert.equals('curl', opts.command)
+    assert.same({ '--config', '-' }, opts.args)
+    assert.is_string(opts.writer)
+  end
+
+  local function assert_args_do_not_contain(opts, needle)
+    assert.is_nil(table.concat(opts.args, '\n'):find(needle, 1, true))
   end
 
   before_each(function()
@@ -140,11 +181,17 @@ describe('translate.llm', function()
 
     assert.equals('こんにちは', result)
     assert.equals(1, job_state.new_calls)
-    assert.equals('curl', job_state.last_opts.command)
-    local args = job_state.last_opts.args
-    assert.equals('https://api.openai.com/v1/chat/completions', last_arg(args))
-    assert.is_true(has_arg(args, 'Authorization: Bearer openai-key'))
-    local body = extract_request_body(args)
+    assert_uses_stdin_config(job_state.last_opts)
+    assert_args_do_not_contain(job_state.last_opts, 'openai-key')
+    assert_args_do_not_contain(job_state.last_opts, 'hello')
+    assert.equals(
+      'https://api.openai.com/v1/chat/completions',
+      config_value(job_state.last_opts.writer, 'url')
+    )
+    assert.is_true(
+      has_config_value(job_state.last_opts.writer, 'header', 'Authorization: Bearer openai-key')
+    )
+    local body = extract_request_body(job_state.last_opts)
     assert.equals('gpt-5.2', body.model)
     assert.equals('system', body.messages[1].role)
     assert.equals('user', body.messages[2].role)
@@ -170,9 +217,15 @@ describe('translate.llm', function()
     end)
 
     assert.equals('訳文', result)
-    local args = job_state.last_opts.args
-    assert.equals('https://example.com/v1/chat/completions', last_arg(args))
-    assert.is_true(has_arg(args, 'Authorization: Bearer env-openai-key'))
+    assert_uses_stdin_config(job_state.last_opts)
+    assert_args_do_not_contain(job_state.last_opts, 'env-openai-key')
+    assert.equals(
+      'https://example.com/v1/chat/completions',
+      config_value(job_state.last_opts.writer, 'url')
+    )
+    assert.is_true(
+      has_config_value(job_state.last_opts.writer, 'header', 'Authorization: Bearer env-openai-key')
+    )
   end)
 
   it('should build anthropic request and parse response', function()
@@ -194,11 +247,19 @@ describe('translate.llm', function()
     end)
 
     assert.equals('翻訳結果', result)
-    local args = job_state.last_opts.args
-    assert.equals('https://api.anthropic.com/v1/messages', last_arg(args))
-    assert.is_true(has_arg(args, 'x-api-key: anthropic-key'))
-    assert.is_true(has_arg(args, 'anthropic-version: 2023-06-01'))
-    local body = extract_request_body(args)
+    assert_uses_stdin_config(job_state.last_opts)
+    assert_args_do_not_contain(job_state.last_opts, 'anthropic-key')
+    assert.equals(
+      'https://api.anthropic.com/v1/messages',
+      config_value(job_state.last_opts.writer, 'url')
+    )
+    assert.is_true(
+      has_config_value(job_state.last_opts.writer, 'header', 'x-api-key: anthropic-key')
+    )
+    assert.is_true(
+      has_config_value(job_state.last_opts.writer, 'header', 'anthropic-version: 2023-06-01')
+    )
+    local body = extract_request_body(job_state.last_opts)
     assert.equals('claude-sonnet-4-0', body.model)
     assert.equals('user', body.messages[1].role)
   end)
@@ -228,15 +289,20 @@ describe('translate.llm', function()
     end)
 
     assert.equals('Gemini訳', result)
-    local args = job_state.last_opts.args
+    assert_uses_stdin_config(job_state.last_opts)
+    assert_args_do_not_contain(job_state.last_opts, 'gemini-key')
     assert.matches(
       '^https://generativelanguage%.googleapis%.com/.+:generateContent$',
-      last_arg(args)
+      config_value(job_state.last_opts.writer, 'url')
     )
-    assert.is_true(has_arg(args, 'x-goog-api-key: gemini-key'))
-    assert.is_false(has_arg(args, 'Authorization: Bearer gemini-key'))
-    assert.is_false(has_arg(args, 'x-api-key: gemini-key'))
-    local body = extract_request_body(args)
+    assert.is_true(
+      has_config_value(job_state.last_opts.writer, 'header', 'x-goog-api-key: gemini-key')
+    )
+    assert.is_false(
+      has_config_value(job_state.last_opts.writer, 'header', 'Authorization: Bearer gemini-key')
+    )
+    assert.is_false(has_config_value(job_state.last_opts.writer, 'header', 'x-api-key: gemini-key'))
+    local body = extract_request_body(job_state.last_opts)
     assert.equals(
       'Translate the following text from auto to ja. Return only translated text.\n\nsource',
       body.contents[1].parts[1].text
@@ -268,12 +334,15 @@ describe('translate.llm', function()
     end)
 
     assert.equals('Gemini訳', result)
-    local args = job_state.last_opts.args
+    assert_uses_stdin_config(job_state.last_opts)
+    assert_args_do_not_contain(job_state.last_opts, 'env-gemini-key')
     assert.matches(
       '^https://generativelanguage%.googleapis%.com/.+:generateContent$',
-      last_arg(args)
+      config_value(job_state.last_opts.writer, 'url')
     )
-    assert.is_true(has_arg(args, 'x-goog-api-key: env-gemini-key'))
+    assert.is_true(
+      has_config_value(job_state.last_opts.writer, 'header', 'x-goog-api-key: env-gemini-key')
+    )
   end)
 
   it('should allow ollama without api key', function()
@@ -294,9 +363,14 @@ describe('translate.llm', function()
     end)
 
     assert.equals('ローカル翻訳', result)
-    local args = job_state.last_opts.args
-    assert.equals('http://localhost:11434/api/chat', last_arg(args))
-    assert.is_false(has_arg(args, 'Authorization: Bearer '))
+    assert_uses_stdin_config(job_state.last_opts)
+    assert.equals(
+      'http://localhost:11434/api/chat',
+      config_value(job_state.last_opts.writer, 'url')
+    )
+    assert.is_false(
+      has_config_value(job_state.last_opts.writer, 'header', 'Authorization: Bearer ')
+    )
   end)
 
   it('should fallback unsupported provider to openai and fail without api key', function()
@@ -356,6 +430,23 @@ describe('translate.llm', function()
     assert.matches('curl is required for translation', notify_messages[1].msg)
   end)
 
+  it('should reject non-http endpoint overrides before starting curl', function()
+    config.setup({
+      llm = {
+        provider = 'ollama',
+        endpoint = 'file:///tmp/comment-translate',
+      },
+    })
+
+    local result = await_callback(function(cb)
+      llm.translate('source', 'ja', nil, cb)
+    end)
+
+    assert.is_nil(result)
+    assert.equals(0, job_state.new_calls)
+    assert.matches('endpoint must use http:// or https://', notify_messages[1].msg)
+  end)
+
   it('should return nil when curl exits with error', function()
     config.setup({
       llm = {
@@ -364,7 +455,7 @@ describe('translate.llm', function()
       },
     })
     job_state.exit_code = 22
-    job_state.stderr_lines = { 'curl failed' }
+    job_state.stderr_lines = { 'curl failed with source and openai-key' }
     job_state.stdout = ''
 
     local result = await_callback(function(cb)
@@ -373,7 +464,9 @@ describe('translate.llm', function()
 
     assert.is_nil(result)
     assert.matches('LLM translation failed', notify_messages[1].msg)
-    assert.matches('curl failed', notify_messages[1].msg)
+    assert.is_nil(notify_messages[1].msg:find('source', 1, true))
+    assert.is_nil(notify_messages[1].msg:find('openai-key', 1, true))
+    assert.is_nil(notify_messages[1].msg:find('curl failed', 1, true))
   end)
 
   it('should return nil for invalid json response', function()

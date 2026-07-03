@@ -8,6 +8,7 @@ describe('timer_cleanup', function()
   local uv
   local original_new_timer
   local original_defer_fn
+  local original_notify
 
   local buffer0
   local buffer1
@@ -18,6 +19,7 @@ describe('timer_cleanup', function()
   local deferred_callbacks
   local translate_requests
   local hover_state
+  local notify_messages
 
   local POS = {
     comment_a = { 1, 0 },
@@ -138,6 +140,7 @@ describe('timer_cleanup', function()
     timers = {}
     deferred_callbacks = {}
     translate_requests = {}
+    notify_messages = {}
     hover_state = {
       shown = {},
       close_calls = 0,
@@ -196,6 +199,7 @@ describe('timer_cleanup', function()
     uv = vim.uv or vim.loop
     original_new_timer = uv.new_timer
     original_defer_fn = vim.defer_fn
+    original_notify = vim.notify
     uv.new_timer = function()
       local timer = {
         started = false,
@@ -232,6 +236,9 @@ describe('timer_cleanup', function()
         timeout = timeout,
       })
     end
+    vim.notify = function(msg, level)
+      table.insert(notify_messages, { msg = msg, level = level })
+    end
 
     buffer0 = vim.api.nvim_create_buf(false, true)
     buffer1 = vim.api.nvim_create_buf(false, true)
@@ -260,6 +267,7 @@ describe('timer_cleanup', function()
     autocmds.cleanup_all_timers()
     uv.new_timer = original_new_timer
     vim.defer_fn = original_defer_fn
+    vim.notify = original_notify
 
     if win2 and vim.api.nvim_win_is_valid(win2) then
       vim.api.nvim_win_close(win2, true)
@@ -391,6 +399,19 @@ describe('timer_cleanup', function()
     reply_translate(1, 'translated A')
     assert.equals('translated B', hover_state.last_show_text)
     assert.same({ 'translated B' }, hover_state.shown)
+  end)
+
+  it('does not include parser error details in hover error notification', function()
+    parser.get_text_at_cursor = function()
+      error('sensitive source text')
+    end
+
+    set_source_position(POS.comment_a)
+    trigger_autocmd('CursorHold')
+    trigger_timer(timers[1])
+
+    assert.equals('comment-translate: hover error', notify_messages[1].msg)
+    assert.is_nil(notify_messages[1].msg:find('sensitive source text', 1, true))
   end)
 
   it('cleans timer when switching windows', function()

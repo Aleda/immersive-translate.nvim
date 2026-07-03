@@ -221,6 +221,69 @@ describe('health', function()
     assert.is_true(contains_message(captured.ok, 'not required for ollama'))
   end)
 
+  it('should report local ollama does not require internet connectivity', function()
+    config.setup({
+      translate_service = 'llm',
+      llm = {
+        provider = 'ollama',
+        endpoint = 'http://localhost:11434/api/chat',
+      },
+    })
+
+    health.check()
+
+    assert.is_true(
+      contains_message(
+        captured.info,
+        'Local Ollama translation does not require internet connectivity'
+      )
+    )
+  end)
+
+  it('should report network access is required for non-local translation', function()
+    config.setup({
+      translate_service = 'llm',
+      llm = {
+        provider = 'ollama',
+        endpoint = 'https://ollama.example.test/api/chat',
+      },
+    })
+
+    health.check()
+
+    assert.is_true(
+      contains_message(
+        captured.info,
+        'Translation requires network access to the configured service'
+      )
+    )
+  end)
+
+  it('should report network access is required when userinfo makes localhost a prefix', function()
+    config.setup({
+      translate_service = 'llm',
+      llm = {
+        provider = 'ollama',
+        endpoint = 'http://localhost:11434@remote.example/api/chat',
+      },
+    })
+
+    health.check()
+
+    assert.is_false(
+      contains_message(
+        captured.info,
+        'Local Ollama translation does not require internet connectivity'
+      )
+    )
+    assert.is_true(
+      contains_message(
+        captured.info,
+        'Translation requires network access to the configured service'
+      )
+    )
+  end)
+
   it('should report ok when provider key exists in env', function()
     config.setup({
       translate_service = 'llm',

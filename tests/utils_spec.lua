@@ -70,29 +70,6 @@ describe('utils', function()
     end)
   end)
 
-  describe('url_encode', function()
-    it('should encode special characters', function()
-      local result = utils.url_encode('hello world')
-      assert.equals('hello%20world', result)
-    end)
-
-    it('should preserve alphanumeric characters', function()
-      local result = utils.url_encode('abc123')
-      assert.equals('abc123', result)
-    end)
-
-    it('should encode newlines as %0A', function()
-      local result = utils.url_encode('hello\nworld')
-      assert.equals('hello%0Aworld', result)
-    end)
-
-    it('should encode Japanese characters', function()
-      local result = utils.url_encode('こんにちは')
-      -- Japanese characters should be percent-encoded
-      assert.is_not_nil(result:match('%%'))
-    end)
-  end)
-
   describe('normalize_lang_code', function()
     it('should lowercase language code', function()
       assert.equals('ja', utils.normalize_lang_code('JA'))

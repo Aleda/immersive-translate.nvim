@@ -141,6 +141,11 @@ describe('integration', function()
       local commands = vim.api.nvim_get_commands({})
       assert.is_not_nil(commands['CommentTranslateReplace'])
     end)
+
+    it('should register CommentTranslateHoverToggle command', function()
+      local commands = vim.api.nvim_get_commands({})
+      assert.is_not_nil(commands['CommentTranslateHoverToggle'])
+    end)
   end)
 
   describe('plug mappings', function()

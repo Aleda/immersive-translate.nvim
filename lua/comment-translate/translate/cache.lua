@@ -110,12 +110,4 @@ function M.size()
   return #lru_keys
 end
 
----@return table
-function M.stats()
-  return {
-    size = #lru_keys,
-    keys = vim.deepcopy(lru_keys),
-  }
-end
-
 return M

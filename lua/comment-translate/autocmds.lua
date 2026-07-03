@@ -86,7 +86,7 @@ function M.setup_hover(config, parser, translate, ui)
 
       timer:start(config.config.hover.delay, 0, function()
         vim.schedule(function()
-          local ok, err = pcall(function()
+          local ok = pcall(function()
             if hover_timers[bufnr] == timer then
               if is_hover_context(ui) then
                 return
@@ -104,7 +104,7 @@ function M.setup_hover(config, parser, translate, ui)
             end
           end)
           if not ok then
-            vim.notify('comment-translate: hover error - ' .. tostring(err), vim.log.levels.DEBUG)
+            vim.notify('comment-translate: hover error', vim.log.levels.DEBUG)
           end
         end)
       end)

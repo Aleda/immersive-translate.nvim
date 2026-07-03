@@ -14,10 +14,11 @@ REQUIREMENTS                                    *comment-translate-requirements*
 - Tree-sitter parser support for the languages you want to inspect
   (recommended)
 - curl command (for translation API)
-- Internet connection
-- Translation uses the configured external service (`google` or `llm`) via
-  curl. Network policy changes (proxy/firewall) or upstream API changes may
-  break translation; inform users in restricted environments.
+- Network access to the configured translation service. Internet access is not
+  required when using a local Ollama endpoint.
+- Translation uses the configured service (`google` or `llm`) via curl.
+  Network policy changes (proxy/firewall) or upstream API changes may break
+  translation; inform users in restricted environments.
 - Parsers may come from bundled Neovim parsers, manual installation, or
   parser-providing plugin setups such as nvim-treesitter.
 - comment-translate.nvim uses Neovim's built-in Tree-sitter APIs and does not
@@ -26,17 +27,22 @@ REQUIREMENTS                                    *comment-translate-requirements*
 PRIVACY / DATA HANDLING                          *comment-translate-privacy*
 
 {comment-translate.nvim} sends the text you translate (comments, strings, or
-visual selections) to an external translation service over the network.
+visual selections) to the configured translation service.
 
-- External transmission: Translation sends text to the configured external
-  service (`google` or `llm`) via curl.
+- External transmission: `translate_service = 'google'` and hosted LLM
+  providers send text to the configured remote service via curl.
+- Local transmission: `llm.provider = 'ollama'` with the default local endpoint
+  sends text only to `http://localhost:11434/api/chat`. If `llm.endpoint` is
+  set to a remote host, text is sent there.
 - What is sent: The target text content itself. If it contains personal data,
   credentials, internal code, or other sensitive information, it may be sent
   outside your environment.
+- Process arguments: API keys and source text/request bodies are passed to curl
+  through stdin config, not through process argv.
 - Cache behavior: The built-in translation cache is in-memory only (no files
   are written by the plugin). The cache is cleared when Neovim exits.
-- Recommendation: Avoid translating sensitive buffers/text in restricted or
-  compliance environments.
+- Recommendation: Use a local Ollama model for sensitive repositories, and
+  avoid translating sensitive buffers/text with hosted services.
 
 INSTALLATION                                    *comment-translate-installation*
 
@@ -72,9 +78,9 @@ If you already manage parsers through nvim-treesitter, you can keep doing so.
 
 CONFIGURATION                                   *comment-translate-config*
 
-Default configuration: >lua
+Configuration example: >lua
     require('comment-translate').setup({
-      target_language = 'ja',
+      target_language = 'ja', -- default: system locale or 'en'
       translate_service = 'google',
       hover = {
         enabled = true,
@@ -83,8 +89,6 @@ Default configuration: >lua
       },
       immersive = {
         enabled = false,
-        mode = 'inline',
-        auto_detect = true,
       },
       cache = {
         enabled = true,
@@ -95,11 +99,19 @@ Default configuration: >lua
         comment = true,
         string = true,
       },
+      llm = {
+        provider = 'openai',
+        api_key = nil,
+        model = 'gpt-5.2',
+        endpoint = nil,
+        system_prompt = nil,
+        timeout = 20,
+      },
       keymaps = {
         hover = '<leader>th',
+        hover_manual = '<leader>tc',
         replace = '<leader>tr',
         toggle = '<leader>tt',
-        mode = '<leader>tm',
       },
     })
 <
@@ -134,6 +146,7 @@ Options:
 
 *comment-translate.llm.endpoint*
     Optional endpoint override. If nil, provider-specific defaults are used.
+    Endpoint overrides must use http:// or https://.
     Default: nil
 
 *comment-translate.llm.system_prompt*
@@ -161,9 +174,22 @@ Options:
     Enable immersive translation on startup (global, affects all buffers).
     Default: false
 
-*comment-translate.immersive.mode*
-    Display mode: 'inline' (beside original) or 'replace' (below original).
-    Default: 'inline'
+*comment-translate.max_length*
+    Maximum source text length accepted for one translation request.
+    Longer text is not sent to the translation service.
+    Default: 5000
+
+*comment-translate.targets.comment*
+    Enable comment detection as a translation target.
+    Default: true
+
+*comment-translate.targets.string*
+    Enable string detection as a translation target.
+    Default: true
+
+*comment-translate.keymaps.hover_manual*
+    Keymap for manual hover when automatic hover is disabled.
+    Default: '<leader>tc'
 
 COMMANDS                                        *comment-translate-commands*
 
@@ -173,11 +199,11 @@ COMMANDS                                        *comment-translate-commands*
 *:CommentTranslateToggle*
     Toggle immersive translation mode ON/OFF (global, affects all buffers).
 
-*:CommentTranslateMode*
-    Toggle immersive display mode (inline/replace).
-
 *:CommentTranslateUpdate*
     Update immersive translation for current buffer.
+
+*:CommentTranslateHoverToggle*
+    Toggle automatic hover translation on CursorHold.
 
 *:CommentTranslateReplace*
     Translate selected text and replace it.
@@ -199,9 +225,9 @@ KEYMAPS                                         *comment-translate-keymaps*
 Default keymaps (can be customized via config):
 
     <leader>th      Hover translation (normal mode)
+    <leader>tc      Manual hover translation (normal mode)
     <leader>tr      Replace selection with translation (visual mode)
     <leader>tt      Toggle immersive translation
-    <leader>tm      Toggle display mode
 
 To disable a keymap, set it to `false`: >lua
     keymaps = {
@@ -220,7 +246,7 @@ To speed up hover, reduce both 'updatetime' and hover.delay.
 
 Immersive Translation~
 Run `:CommentTranslateToggle` to enable. All comments in the buffer
-will be translated and displayed inline or below the original text.
+will be translated and displayed as virtual text beside the original text.
 
 Note: Immersive mode is GLOBAL. When enabled, it automatically applies
 to all buffers you switch to. Toggling OFF disables it for all buffers.
@@ -232,7 +258,8 @@ press <leader>tr to replace with translation.
 TROUBLESHOOTING                                 *comment-translate-troubleshooting*
 
 Translation not working~
-- Check internet connection
+- Check network access to the configured translation service. Internet access
+  is not required for a local Ollama endpoint.
 - Verify curl is installed: `which curl`
 - Check plenary.nvim is installed: `:lua require('plenary')`
 

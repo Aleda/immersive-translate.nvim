@@ -1,5 +1,6 @@
 local M = {}
 local cache = require('comment-translate.translate.cache')
+local curl_config = require('comment-translate.translate.curl_config')
 local utils = require('comment-translate.utils')
 
 local SUPPORTED_PROVIDERS = {
@@ -75,6 +76,13 @@ local function resolve_endpoint(provider, llm_config)
     )
   end
   return 'http://localhost:11434/api/chat'
+end
+
+---@param endpoint string
+---@return boolean
+local function is_http_endpoint(endpoint)
+  endpoint = endpoint:lower()
+  return endpoint:match('^https?://') ~= nil
 end
 
 ---@param provider string
@@ -337,47 +345,46 @@ function M.translate(text, target_lang, source_lang, callback)
     text
   )
   local endpoint = resolve_endpoint(provider, config.config.llm)
+  if not is_http_endpoint(endpoint) then
+    vim.schedule(function()
+      vim.notify(
+        'comment-translate: LLM endpoint must use http:// or https://',
+        vim.log.levels.ERROR
+      )
+      callback(nil)
+    end)
+    return
+  end
+
   local payload = build_payload(provider, config.config.llm.model, system_prompt, user_prompt)
   local headers = build_headers(provider, api_key)
 
   local request_body = vim.fn.json_encode(payload)
 
-  local stderr_output = {}
-  local curl_args = {
-    '--silent',
-    '--show-error',
-    '--fail',
-    '--max-time',
-    tostring(config.config.llm.timeout),
-    '-X',
-    'POST',
+  local request_config_lines = {
+    'silent',
+    'show-error',
+    'fail',
+    curl_config.option('max-time', tostring(config.config.llm.timeout)),
+    curl_config.option('request', 'POST'),
   }
 
   for _, header in ipairs(headers) do
-    table.insert(curl_args, '-H')
-    table.insert(curl_args, header)
+    table.insert(request_config_lines, curl_config.option('header', header))
   end
 
-  table.insert(curl_args, '-d')
-  table.insert(curl_args, request_body)
-  table.insert(curl_args, endpoint)
+  table.insert(request_config_lines, curl_config.option('data-raw', request_body))
+  table.insert(request_config_lines, curl_config.option('url', endpoint))
 
   Job:new({
     command = 'curl',
-    args = curl_args,
-    on_stderr = function(_, data)
-      if data and data ~= '' then
-        table.insert(stderr_output, data)
-      end
-    end,
+    args = { '--config', '-' },
+    writer = curl_config.build(request_config_lines),
+    on_stderr = function() end,
     on_exit = function(j, exit_code)
       vim.schedule(function()
         if exit_code ~= 0 then
-          local err_msg = 'comment-translate: LLM translation failed (curl error)'
-          if #stderr_output > 0 then
-            err_msg = err_msg .. ': ' .. table.concat(stderr_output, ' ')
-          end
-          vim.notify(err_msg, vim.log.levels.WARN)
+          vim.notify('comment-translate: LLM translation failed (curl error)', vim.log.levels.WARN)
           callback(nil)
           return
         end

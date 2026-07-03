@@ -108,6 +108,34 @@ describe('parser', function()
         assert.equals('Return the result', result)
       end)
 
+      it('should not detect an inline comment when cursor is before it', function()
+        vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { 'local x = 1 -- Lua inline comment' })
+
+        local result = regex.get_comment_at_line(bufnr, 0, 2)
+        assert.is_nil(result)
+      end)
+
+      it('should detect an inline comment when cursor is inside it', function()
+        vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { 'local x = 1 -- Lua inline comment' })
+
+        local result = regex.get_comment_at_line(bufnr, 0, 15)
+        assert.equals('Lua inline comment', result)
+      end)
+
+      it('should not detect an inline block comment when cursor is after it', function()
+        vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { 'x /* note */ "bar"' })
+
+        local result = regex.get_comment_at_line(bufnr, 0, 14)
+        assert.is_nil(result)
+      end)
+
+      it('should detect the inline block comment containing the cursor', function()
+        vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { 'x /* first */ y /* second */' })
+
+        local result = regex.get_comment_at_line(bufnr, 0, 21)
+        assert.equals('second', result)
+      end)
+
       it('should detect inline // comments', function()
         vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { 'int x = 5; // This is a value' })
 
@@ -293,6 +321,13 @@ describe('parser', function()
         assert.equals('hello world', result)
       end)
 
+      it('should detect strings with escaped delimiters', function()
+        vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { 'local x = "hello \\"quoted\\" world"' })
+
+        local result = regex.get_string_at_position(bufnr, 0, 20)
+        assert.equals('hello \\"quoted\\" world', result)
+      end)
+
       it('should detect single-quoted strings', function()
         vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "local x = 'hello world'" })
 
@@ -374,5 +409,77 @@ describe('parser', function()
       local result = utils.merge_lines(lines)
       assert.equals('first line\nsecond line\nthird line', result)
     end)
+  end)
+
+  describe('fallback get_text_at_cursor', function()
+    local parser
+    local config
+    local bufnr
+    local original_get_parser
+
+    before_each(function()
+      package.loaded['comment-translate.parser'] = nil
+      package.loaded['comment-translate.parser.regex'] = nil
+      package.loaded['comment-translate.parser.treesitter'] = nil
+      package.loaded['comment-translate.utils'] = nil
+      package.loaded['comment-translate.config'] = nil
+
+      config = require('comment-translate.config')
+      config.setup({
+        targets = {
+          comment = true,
+          string = true,
+        },
+      })
+
+      original_get_parser = vim.treesitter.get_parser
+      vim.treesitter.get_parser = function()
+        error('parser unavailable')
+      end
+
+      parser = require('comment-translate.parser')
+      bufnr = vim.api.nvim_create_buf(false, true)
+      vim.api.nvim_set_current_buf(bufnr)
+    end)
+
+    after_each(function()
+      vim.treesitter.get_parser = original_get_parser
+      if bufnr and vim.api.nvim_buf_is_valid(bufnr) then
+        vim.api.nvim_buf_delete(bufnr, { force = true })
+      end
+    end)
+
+    it('should not translate an inline comment when cursor is before the comment', function()
+      vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { 'local x = 1 -- inline comment' })
+      vim.api.nvim_win_set_cursor(0, { 1, 2 })
+
+      local text, node_type = parser.get_text_at_cursor(bufnr)
+
+      assert.is_nil(text)
+      assert.is_nil(node_type)
+    end)
+
+    it('should translate a string before an inline comment when cursor is in the string', function()
+      vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { 'local x = "hello" -- inline comment' })
+      vim.api.nvim_win_set_cursor(0, { 1, 12 })
+
+      local text, node_type = parser.get_text_at_cursor(bufnr)
+
+      assert.equals('hello', text)
+      assert.equals('string', node_type)
+    end)
+
+    it(
+      'should translate a string after an inline block comment when cursor is in the string',
+      function()
+        vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { 'x /* note */ "bar"' })
+        vim.api.nvim_win_set_cursor(0, { 1, 14 })
+
+        local text, node_type = parser.get_text_at_cursor(bufnr)
+
+        assert.equals('bar', text)
+        assert.equals('string', node_type)
+      end
+    )
   end)
 end)
