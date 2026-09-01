@@ -130,6 +130,33 @@ remain available.
 :CommentTranslateReplace
 ```
 
+### Reasoning Models
+
+Reasoning ("thinking") models are supported and disabled by default, since
+translation rarely needs deliberation and reasoning adds latency and cost.
+
+```lua
+require('comment-translate').setup({
+  translate_service = 'llm',
+  llm = {
+    provider = 'openai',      -- or 'anthropic'
+    model = 'deepseek-v4-flash',
+    endpoint = 'https://api.deepseek.com/v1/chat/completions',
+    reasoning = {
+      enabled = true,
+      effort = 'high',        -- openai/ollama-shaped providers
+      budget_tokens = 1024,   -- anthropic-shaped providers
+    },
+  },
+})
+```
+
+`effort` is sent as `reasoning_effort` to OpenAI-compatible endpoints;
+`budget_tokens` becomes an Anthropic `thinking` block, with `max_tokens` raised
+above the budget and `temperature` omitted, as that API requires. Reasoning
+traces are never rendered: Anthropic `thinking` blocks and OpenAI
+`reasoning_content` fields are ignored, and only the translation is shown.
+
 ## Configuration Example
 
 If `target_language` is omitted, comment-translate uses your system locale and falls back to `en`.

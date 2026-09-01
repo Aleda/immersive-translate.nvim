@@ -304,7 +304,7 @@ describe('translate.llm', function()
     assert.is_false(has_config_value(job_state.last_opts.writer, 'header', 'x-api-key: gemini-key'))
     local body = extract_request_body(job_state.last_opts)
     assert.equals(
-      'Translate the following text from auto to ja. Return only translated text.\n\nsource',
+      'Translate from auto into ja.\n\n<text>\nsource\n</text>',
       body.contents[1].parts[1].text
     )
   end)

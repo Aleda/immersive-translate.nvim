@@ -226,6 +226,31 @@ local function validate(user_config)
     end
   end
 
+  if user_config.llm and user_config.llm.reasoning then
+    warn_unknown('llm.reasoning', user_config.llm.reasoning, {
+      enabled = true,
+      effort = true,
+      budget_tokens = true,
+    })
+    vim.validate({
+      ['llm.reasoning.enabled'] = { user_config.llm.reasoning.enabled, 'boolean', true },
+      ['llm.reasoning.effort'] = { user_config.llm.reasoning.effort, 'string', true },
+      ['llm.reasoning.budget_tokens'] = {
+        user_config.llm.reasoning.budget_tokens,
+        'number',
+        true,
+      },
+    })
+
+    if user_config.llm.reasoning.budget_tokens and user_config.llm.reasoning.budget_tokens < 1 then
+      vim.notify(
+        'comment-translate: llm.reasoning.budget_tokens must be >= 1, defaulting to 1024',
+        vim.log.levels.WARN
+      )
+      user_config.llm.reasoning.budget_tokens = 1024
+    end
+  end
+
   if user_config.cache then
     warn_unknown('cache', user_config.cache, { enabled = true, max_entries = true })
     vim.validate({
@@ -258,11 +283,13 @@ local function validate(user_config)
       endpoint = true,
       system_prompt = true,
       timeout = true,
+      reasoning = true,
     })
     vim.validate({
       ['llm.provider'] = { user_config.llm.provider, 'string', true },
       ['llm.api_key'] = { user_config.llm.api_key, 'string', true },
       ['llm.model'] = { user_config.llm.model, 'string', true },
+      ['llm.reasoning'] = { user_config.llm.reasoning, 'table', true },
       ['llm.endpoint'] = { user_config.llm.endpoint, 'string', true },
       ['llm.system_prompt'] = { user_config.llm.system_prompt, 'string', true },
       ['llm.timeout'] = { user_config.llm.timeout, 'number', true },
