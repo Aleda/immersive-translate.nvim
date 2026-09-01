@@ -135,6 +135,78 @@ describe('ui.virtual_text block rendering', function()
     end)
   end)
 
+  describe('wrapping', function()
+    -- virt_lines never soft-wrap: anything wider than the window is clipped
+    -- and simply unreadable, so the renderer must wrap the text itself.
+    it('should split a long translation across several virt_lines', function()
+      local bufnr = make_buf({ 'source' })
+      local long = string.rep('word ', 120)
+
+      virtual_text.show_block(bufnr, target('a', 0, 0), long)
+
+      local details = marks(bufnr)[1][4]
+      assert.is_true(#details.virt_lines > 1, 'long text was not wrapped')
+    end)
+
+    it('should keep every rendered line within the window width', function()
+      local bufnr = make_buf({ 'source' })
+      local width = vim.api.nvim_win_get_width(0)
+
+      virtual_text.show_block(bufnr, target('a', 0, 0), string.rep('word ', 120))
+
+      for _, vline in ipairs(marks(bufnr)[1][4].virt_lines) do
+        assert.is_true(vim.fn.strdisplaywidth(vline[1][1]) <= width)
+      end
+    end)
+
+    it('should wrap CJK text on display width, not byte length', function()
+      local bufnr = make_buf({ 'source' })
+      local width = vim.api.nvim_win_get_width(0)
+
+      virtual_text.show_block(bufnr, target('a', 0, 0), string.rep('中文段落', 60))
+
+      for _, vline in ipairs(marks(bufnr)[1][4].virt_lines) do
+        assert.is_true(vim.fn.strdisplaywidth(vline[1][1]) <= width)
+      end
+    end)
+
+    it('should not split a short translation', function()
+      local bufnr = make_buf({ 'source' })
+
+      virtual_text.show_block(bufnr, target('a', 0, 0), '短译文')
+
+      assert.equals(1, #marks(bufnr)[1][4].virt_lines)
+    end)
+
+    it('should preserve explicit newlines as separate lines', function()
+      local bufnr = make_buf({ 'source' })
+
+      virtual_text.show_block(bufnr, target('a', 0, 0), 'first\nsecond')
+
+      assert.equals(2, #marks(bufnr)[1][4].virt_lines)
+    end)
+
+    it('should not lose any words when wrapping', function()
+      local bufnr = make_buf({ 'source' })
+      local words = {}
+      for i = 1, 80 do
+        table.insert(words, 'w' .. i)
+      end
+      local text = table.concat(words, ' ')
+
+      virtual_text.show_block(bufnr, target('a', 0, 0), text)
+
+      local joined = {}
+      for _, vline in ipairs(marks(bufnr)[1][4].virt_lines) do
+        table.insert(joined, vline[1][1])
+      end
+      local rebuilt = table.concat(joined, ' ')
+      for _, w in ipairs(words) do
+        assert.is_not_nil(rebuilt:find('%f[%w]' .. w .. '%f[%W]'), 'lost ' .. w)
+      end
+    end)
+  end)
+
   describe('target id tracking', function()
     it('should keep distinct targets from overwriting each other', function()
       local bufnr = make_buf({ 'a', 'b' })

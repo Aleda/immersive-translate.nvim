@@ -65,6 +65,103 @@ function M.clear_all()
   blocks = {}
 end
 
+---Wrap one logical line to `width` display columns.
+---
+---virt_lines are never soft-wrapped by Neovim: whatever does not fit the
+---window is simply clipped and unreadable. So the renderer wraps the text
+---itself, measuring in display cells (strdisplaywidth) rather than bytes or
+---characters, since CJK glyphs occupy two columns each.
+---@param line string
+---@param width integer
+---@return string[]
+local function wrap_line(line, width)
+  if width <= 0 or vim.fn.strdisplaywidth(line) <= width then
+    return { line }
+  end
+
+  local out = {}
+  local current = ''
+
+  ---@param piece string
+  local function push(piece)
+    if current == '' then
+      current = piece
+    elseif vim.fn.strdisplaywidth(current .. ' ' .. piece) <= width then
+      current = current .. ' ' .. piece
+    else
+      table.insert(out, current)
+      current = piece
+    end
+  end
+
+  ---Break a single token that is itself wider than the line.
+  ---@param token string
+  local function push_oversized(token)
+    local chunk = ''
+    for _, char in ipairs(vim.fn.split(token, '\\zs')) do
+      if vim.fn.strdisplaywidth(chunk .. char) > width then
+        if chunk ~= '' then
+          if current ~= '' then
+            table.insert(out, current)
+            current = ''
+          end
+          table.insert(out, chunk)
+        end
+        chunk = char
+      else
+        chunk = chunk .. char
+      end
+    end
+    if chunk ~= '' then
+      push(chunk)
+    end
+  end
+
+  for token in line:gmatch('%S+') do
+    if vim.fn.strdisplaywidth(token) > width then
+      push_oversized(token)
+    else
+      push(token)
+    end
+  end
+
+  if current ~= '' then
+    table.insert(out, current)
+  end
+
+  if #out == 0 then
+    return { line }
+  end
+
+  return out
+end
+
+---Usable width for a translation block in the window showing `bufnr`.
+---@param bufnr integer
+---@return integer
+local function display_width(bufnr)
+  local width = nil
+
+  for _, winid in ipairs(vim.api.nvim_list_wins()) do
+    if vim.api.nvim_win_get_buf(winid) == bufnr then
+      local info = vim.fn.getwininfo(winid)[1]
+      width = info and info.width or vim.api.nvim_win_get_width(winid)
+      -- Subtract gutters (number, sign and fold columns) so wrapped text
+      -- lines up with the source rather than overflowing behind them.
+      if info then
+        width = width - (info.textoff or 0)
+      end
+      break
+    end
+  end
+
+  if not width or width <= 0 then
+    width = vim.o.columns
+  end
+
+  return width
+end
+
 ---@return table
 local function render_opts()
   local config = require('comment-translate.config')
@@ -102,9 +199,13 @@ function M.show_block(bufnr, target, translated_text)
     anchor = line_count - 1
   end
 
+  local width = display_width(bufnr) - vim.fn.strdisplaywidth(opts.prefix)
+
   local virt_lines = {}
   for _, line in ipairs(vim.split(translated_text, '\n', { plain = true })) do
-    table.insert(virt_lines, { { opts.prefix .. line, opts.hl_group } })
+    for _, wrapped in ipairs(wrap_line(line, width)) do
+      table.insert(virt_lines, { { opts.prefix .. wrapped, opts.hl_group } })
+    end
   end
 
   local mark_opts = {
