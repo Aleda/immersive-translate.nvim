@@ -4,6 +4,7 @@ local config = require('comment-translate.config')
 local parser = require('comment-translate.parser')
 local translate = require('comment-translate.translate')
 local ui = require('comment-translate.ui')
+local scheduler = require('comment-translate.immersive.scheduler')
 
 local immersive_state = {}
 local immersive_global_enabled = false
@@ -31,6 +32,20 @@ end
 local function bump_token(state)
   state.token = (state.token or 0) + 1
   return state.token
+end
+
+---Document mode drives the viewport scheduler; every other filetype keeps the
+---existing whole-buffer comment path.
+---@param bufnr number
+---@return boolean
+local function uses_document_mode(bufnr)
+  if not vim.api.nvim_buf_is_valid(bufnr) then
+    return false
+  end
+  local immersive = config.config.immersive or {}
+  local by_ft = immersive.mode_by_filetype or {}
+  local mode = by_ft[vim.bo[bufnr].filetype] or immersive.default_mode or 'comment'
+  return mode == 'document'
 end
 
 ---@return boolean
@@ -64,10 +79,39 @@ function M.enable_immersive(bufnr)
 end
 
 ---@param bufnr number
+function M.refresh_immersive(bufnr)
+  bufnr = normalize_bufnr(bufnr)
+  if not vim.api.nvim_buf_is_valid(bufnr) then
+    return
+  end
+
+  if uses_document_mode(bufnr) then
+    if scheduler.is_enabled(bufnr) then
+      scheduler.refresh(bufnr)
+      scheduler.ensure_visible(bufnr)
+    end
+    return
+  end
+
+  M.update_immersive(bufnr)
+end
+
+---Re-evaluate the visible region without re-extracting; used by scroll events.
+---@param bufnr number
+---@param winid? number
+function M.ensure_visible(bufnr, winid)
+  bufnr = normalize_bufnr(bufnr)
+  if uses_document_mode(bufnr) and scheduler.is_enabled(bufnr) then
+    scheduler.ensure_visible(bufnr, winid)
+  end
+end
+
+---@param bufnr number
 function M.cleanup_buffer(bufnr)
   if immersive_state[bufnr] then
     immersive_state[bufnr] = nil
   end
+  scheduler.disable(bufnr)
 end
 
 function M.hover_translate()
@@ -195,6 +239,10 @@ end
 
 ---@private
 local function disable_all_buffers()
+  for bufnr, _ in pairs(immersive_state) do
+    scheduler.disable(bufnr)
+  end
+
   ui.virtual_text.clear_all()
 
   for _, state in pairs(immersive_state) do
@@ -231,6 +279,14 @@ function M.update_immersive(bufnr)
 
   if not vim.api.nvim_buf_is_valid(bufnr) then
     immersive_state[bufnr] = nil
+    return
+  end
+
+  if uses_document_mode(bufnr) then
+    -- Document buffers are driven by the viewport scheduler, which owns its
+    -- own extraction, queueing and mark lifecycle.
+    scheduler.enable(bufnr)
+    scheduler.ensure_visible(bufnr)
     return
   end
 
@@ -325,6 +381,33 @@ local function setup_plug_mappings()
   })
 end
 
+---Refresh the current buffer. With bang, also drop its cached translations
+---so every visible target is fetched again.
+---@param opts? table
+function M.refresh_command(opts)
+  local bufnr = vim.api.nvim_get_current_buf()
+  local bang = type(opts) == 'table' and opts.bang or false
+
+  if bang and uses_document_mode(bufnr) then
+    scheduler.invalidate_cached(bufnr)
+  end
+
+  M.refresh_immersive(bufnr)
+end
+
+---Clear the in-memory translation cache and re-fetch the visible region.
+function M.clear_cache()
+  local cache = require('comment-translate.translate.cache')
+  cache.clear()
+
+  local bufnr = vim.api.nvim_get_current_buf()
+  if uses_document_mode(bufnr) and scheduler.is_enabled(bufnr) then
+    scheduler.clear_visible(bufnr)
+  end
+
+  vim.notify('Translation cache cleared', vim.log.levels.INFO)
+end
+
 function M.setup()
   vim.api.nvim_create_user_command('CommentTranslateHover', M.hover_translate, {
     desc = 'Translate comment/string at cursor',
@@ -349,6 +432,24 @@ function M.setup()
 
   vim.api.nvim_create_user_command('CommentTranslateHoverToggle', M.toggle_auto_hover, {
     desc = 'Toggle auto hover ON/OFF',
+    force = true,
+  })
+
+  -- Immersive-facing names. The CommentTranslate* commands above stay valid
+  -- so existing configurations keep working.
+  vim.api.nvim_create_user_command('ImmersiveTranslateToggle', M.toggle_immersive, {
+    desc = 'Toggle immersive translation ON/OFF',
+    force = true,
+  })
+
+  vim.api.nvim_create_user_command('ImmersiveTranslateRefresh', M.refresh_command, {
+    desc = 'Re-extract and refresh immersive translation (! also drops cache)',
+    bang = true,
+    force = true,
+  })
+
+  vim.api.nvim_create_user_command('ImmersiveTranslateClearCache', M.clear_cache, {
+    desc = 'Clear in-memory translation cache',
     force = true,
   })
 

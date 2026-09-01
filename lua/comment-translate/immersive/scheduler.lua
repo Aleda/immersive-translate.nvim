@@ -383,6 +383,52 @@ function M.refresh(bufnr)
   rebuild_targets(bufnr, state)
 end
 
+---Drop the completed-cache entry for every target in this buffer, so the next
+---schedule refetches them. Used by `:ImmersiveTranslateRefresh!`.
+---@param bufnr integer
+function M.invalidate_cached(bufnr)
+  local state = state_of(bufnr)
+  if not state then
+    return
+  end
+
+  for _, id in ipairs(state.order) do
+    local target = state.targets[id]
+    if target then
+      translate.invalidate(translate.prepare(target.text, nil, nil, nil))
+    end
+  end
+end
+
+---Clear rendered state for targets in the current viewport and requeue them.
+---Marks in other buffers, and in-flight requests, are left alone.
+---@param bufnr integer
+---@param winid? integer
+function M.clear_visible(bufnr, winid)
+  local state = state_of(bufnr)
+  if not state or not state.enabled or not vim.api.nvim_buf_is_valid(bufnr) then
+    return
+  end
+
+  local config = require('comment-translate.config')
+  local prefetch = (config.config.immersive or {}).prefetch_lines or 40
+  local top, bottom = viewport_rows(bufnr, winid)
+
+  for _, id in ipairs(state.order) do
+    local target = state.targets[id]
+    if target and priority_of(target, top, bottom, prefetch) == 0 then
+      virtual_text.clear_target(bufnr, id)
+      state.rendered[id] = nil
+    end
+  end
+
+  state.generation = state.generation + 1
+  state.queued = {}
+  state.failed = {}
+
+  M.schedule_all(bufnr, winid)
+end
+
 ---@param bufnr integer
 local function drop_waiters(bufnr)
   for _, entry in pairs(inflight) do
