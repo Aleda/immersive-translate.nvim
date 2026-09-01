@@ -311,16 +311,27 @@ function M.setup_immersive(commands, ui)
     end,
   })
 
-  M.cleanup_immersive_timers = function()
+  local function cleanup_all_debounce()
     for bufnr, _ in pairs(debounce_timers) do
       cancel_debounce(bufnr)
     end
   end
+
+  -- Invariant: no immersive timer may outlive the session (design.md 2.2).
+  vim.api.nvim_create_autocmd('VimLeavePre', {
+    group = immersive_group,
+    callback = cleanup_all_debounce,
+  })
+
+  M.cleanup_immersive_timers = cleanup_all_debounce
 end
 
 function M.cleanup_all_timers()
   for bufnr, _ in pairs(hover_timers) do
     cleanup_timer(bufnr)
+  end
+  if M.cleanup_immersive_timers then
+    M.cleanup_immersive_timers()
   end
 end
 

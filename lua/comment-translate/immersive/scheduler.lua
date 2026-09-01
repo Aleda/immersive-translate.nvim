@@ -31,6 +31,7 @@ local virtual_text = require('comment-translate.ui.virtual_text')
 ---@field rendered table<string, string>
 ---@field queued table<string, boolean>
 ---@field failed table<string, integer>
+---@field skipped table<string, boolean>
 
 ---@type table<integer, ImmersiveBufferState>
 local buffers = {}
@@ -90,6 +91,14 @@ local function rebuild_targets(bufnr, state)
     if not target or target.fingerprint ~= fingerprint then
       virtual_text.clear_target(bufnr, id)
       state.rendered[id] = nil
+    end
+  end
+
+  -- A skipped target that has since changed or disappeared should not stay
+  -- skipped; its replacement is judged on its own length.
+  for id, _ in pairs(state.skipped) do
+    if not by_id[id] then
+      state.skipped[id] = nil
     end
   end
 
@@ -276,9 +285,35 @@ local function needs_work(state, target_id)
   if state.queued[target_id] then
     return false
   end
+  if state.skipped[target_id] then
+    return false
+  end
   if state.failed[target_id] == state.generation then
     return false
   end
+  return true
+end
+
+---Targets beyond the configured length are skipped rather than split: cutting
+---a paragraph mid-sentence would damage translation coherence, and sending it
+---whole risks a provider-side rejection. The user can still translate such a
+---block explicitly with the visual replace command.
+---@param state ImmersiveBufferState
+---@param target ImmersiveTarget
+---@return boolean
+local function exceeds_length(state, target)
+  local config = require('comment-translate.config')
+  local limit = (config.config.immersive or {}).max_target_length
+  if not limit or limit <= 0 then
+    return false
+  end
+
+  -- Characters rather than bytes, so CJK text is not penalised.
+  if vim.fn.strchars(target.text) <= limit then
+    return false
+  end
+
+  state.skipped[target.id] = true
   return true
 end
 
@@ -303,10 +338,18 @@ function M.schedule_all(bufnr, winid)
 
   for _, id in ipairs(state.order) do
     local target = state.targets[id]
-    if target and needs_work(state, id) then
+    if target and needs_work(state, id) and not exceeds_length(state, target) then
       local priority = viewport_only and priority_of(target, top, bottom, prefetch) or 0
-      state.queued[id] = true
-      enqueue(bufnr, id, state.generation, priority)
+
+      -- P2 is everything outside the window and its prefetch band. Those
+      -- targets are deliberately *not* queued: they are picked up on a later
+      -- pass once the reader scrolls toward them. Queueing them here would
+      -- drain the whole document on the first pass and defeat the point of
+      -- viewport priority (design.md 6.2).
+      if priority < 2 then
+        state.queued[id] = true
+        enqueue(bufnr, id, state.generation, priority)
+      end
     end
   end
 
@@ -349,6 +392,7 @@ function M.enable(bufnr)
       rendered = {},
       queued = {},
       failed = {},
+      skipped = {},
     }
     buffers[bufnr] = state
   end
@@ -357,6 +401,7 @@ function M.enable(bufnr)
   state.generation = state.generation + 1
   state.queued = {}
   state.failed = {}
+  state.skipped = {}
   rebuild_targets(bufnr, state)
 end
 
@@ -370,6 +415,9 @@ function M.invalidate(bufnr)
   state.generation = state.generation + 1
   state.queued = {}
   state.failed = {}
+  -- An explicit refresh is the user asking to try again, including for
+  -- targets previously skipped or failed.
+  state.skipped = {}
 end
 
 ---Re-extract targets, keeping marks for unchanged content.
@@ -425,6 +473,7 @@ function M.clear_visible(bufnr, winid)
   state.generation = state.generation + 1
   state.queued = {}
   state.failed = {}
+  state.skipped = {}
 
   M.schedule_all(bufnr, winid)
 end
