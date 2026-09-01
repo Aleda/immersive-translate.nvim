@@ -486,7 +486,10 @@ describe('translate.llm', function()
     assert.matches('Failed to parse LLM response', notify_messages[1].msg)
   end)
 
-  it('should reuse cache and avoid duplicate requests', function()
+  it('should not cache inside the provider', function()
+    -- The provider performs requests only; the completed cache is owned by
+    -- translate/init.lua (design.md 3.3). Calling the provider directly must
+    -- therefore issue a request every time.
     config.setup({
       llm = {
         provider = 'openai',
@@ -495,7 +498,7 @@ describe('translate.llm', function()
     })
     job_state.stdout = vim.fn.json_encode({
       choices = {
-        { message = { content = 'cached-translation' } },
+        { message = { content = 'uncached-translation' } },
       },
     })
 
@@ -504,6 +507,39 @@ describe('translate.llm', function()
     end)
     local second = await_callback(function(cb)
       llm.translate('cache-me', 'ja', nil, cb)
+    end)
+
+    assert.equals('uncached-translation', first)
+    assert.equals('uncached-translation', second)
+    assert.equals(2, job_state.new_calls)
+  end)
+
+  it('should reuse cache through the facade and avoid duplicate requests', function()
+    config.setup({
+      translate_service = 'llm',
+      cache = { enabled = true, max_entries = 50 },
+      llm = {
+        provider = 'openai',
+        api_key = 'openai-key',
+      },
+    })
+    cache.clear()
+
+    package.loaded['comment-translate.translate'] = nil
+    package.loaded['comment-translate.translate.init'] = nil
+    local translate = require('comment-translate.translate')
+
+    job_state.stdout = vim.fn.json_encode({
+      choices = {
+        { message = { content = 'cached-translation' } },
+      },
+    })
+
+    local first = await_callback(function(cb)
+      translate.translate('cache-me', 'ja', nil, cb)
+    end)
+    local second = await_callback(function(cb)
+      translate.translate('cache-me', 'ja', nil, cb)
     end)
 
     assert.equals('cached-translation', first)
