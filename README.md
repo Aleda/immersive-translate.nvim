@@ -22,6 +22,12 @@ translation rendered directly beneath it, the way a browser reading extension
 works. Everything below marked "added in this fork" is new; the rest comes from
 upstream.
 
+https://github.com/Aleda/immersive-translate.nvim/raw/main/assets/immersive-demo.mp4
+
+Reading this project's own README with the mode on: translations appear beneath
+each paragraph as you scroll, and the file on disk is never touched.
+([download the clip](assets/immersive-demo.mp4) if it does not play inline.)
+
 ### Added in this fork
 
 | Capability | Description |

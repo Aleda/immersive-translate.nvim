@@ -19,6 +19,12 @@
 文档、帮助文件或纯文本，每个段落的译文会直接渲染在原文下方，效果类似浏览器的
 沉浸式翻译扩展。下表中列出的是本 fork 新增的部分，其余能力来自上游。
 
+https://github.com/Aleda/immersive-translate.nvim/raw/main/assets/immersive-demo.mp4
+
+上面演示的是开启该模式阅读本项目自身 README 的效果：滚动时译文逐段出现在原文
+下方，磁盘上的文件始终不会被改动。
+（若无法内嵌播放，可[下载该片段](assets/immersive-demo.mp4)查看。）
+
 ### 本 fork 新增的能力
 
 | 能力 | 说明 |
