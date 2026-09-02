@@ -3,10 +3,41 @@
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Neovim](https://img.shields.io/badge/Neovim-%3E=0.10-blue)](https://neovim.io)
 
+**English** | [简体中文](README.zh-CN.md)
+
 Translate comments and strings directly in Neovim using hover or immersive inline views.
 Supports classic translation APIs as well as LLM backends, including fully local models via Ollama.
 
 ![Hover translation demo](assets/demo.gif)
+
+## About This Fork
+
+This is a fork of [noir4y/comment-translate.nvim](https://github.com/noir4y/comment-translate.nvim),
+which provides hover and inline translation of code comments and strings. All of
+that behaviour is preserved here.
+
+What this fork adds is an **immersive bilingual reading mode for prose**: open a
+Markdown file, help page or plain-text document and each paragraph gets its
+translation rendered directly beneath it, the way a browser reading extension
+works. Everything below marked "added in this fork" is new; the rest comes from
+upstream.
+
+### Added in this fork
+
+| Capability | Description |
+|---|---|
+| Document reading mode | Paragraph-level bilingual view for `markdown`, `text`, `help`, `rst` and `org` buffers, rendered as virtual lines below the source |
+| Viewport-driven translation | What you are reading is translated first, with a prefetch band around the window; the rest waits until you scroll to it |
+| Structure-aware extraction | Headings, quotes and list items are translated as units; code fences, front matter, HTML blocks and tables are skipped |
+| URL and image stripping | Links keep only their visible label and images are dropped, so no URL, token or filename is ever sent to a translation service |
+| Automatic line wrapping | Translations are wrapped to the window width, measured in display cells so CJK text stays readable |
+| Profile-aware cache | Cache keys include service, provider, model, endpoint and prompt, so two models cannot return each other's translations |
+| Reasoning model support | Opt-in `thinking` / `reasoning_effort` control, with reasoning traces excluded from rendered output |
+| Bounded concurrency | A configurable ceiling on in-flight requests, shared across buffers |
+
+Upstream capabilities that continue to work unchanged: hover translation,
+visual-selection replace, Tree-sitter aware comment and string detection, the
+Google and LLM backends, and the existing `:CommentTranslate*` commands.
 
 ## Why This Plugin
 
@@ -18,12 +49,13 @@ Many translation plugins rely on external services only. `comment-translate.nvim
 
 ## Key Benefits
 
+- Immersive bilingual reading for documents, not just code comments
 - LLM translation support (`openai`, `anthropic`, `gemini`, `ollama`)
 - Local LLM workflow via Ollama (no source text sent to cloud APIs)
 - Hover translation for quick understanding
-- Immersive inline translation mode
 - Replace selected text with translation
 - Tree-sitter aware comment/string detection
+- The source file is never modified — translations live in the display layer only
 
 ## Security and Privacy
 
@@ -263,6 +295,13 @@ also want parser availability checked for that buffer.
 - Format check: `make fmt-check`
 - Lint: `make lint`
 - Test: `make test`
+
+## Credits
+
+Forked from [noir4y/comment-translate.nvim](https://github.com/noir4y/comment-translate.nvim)
+by [noir4y](https://github.com/noir4y), which provides the hover, replace,
+provider and caching foundations this build extends. Licensed under MIT, as is
+this fork.
 
 ## License
 
