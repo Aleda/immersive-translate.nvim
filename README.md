@@ -1,7 +1,7 @@
 # comment-translate.nvim
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Neovim](https://img.shields.io/badge/Neovim-%3E=0.8-blue)](https://neovim.io)
+[![Neovim](https://img.shields.io/badge/Neovim-%3E=0.10-blue)](https://neovim.io)
 
 Translate comments and strings directly in Neovim using hover or immersive inline views.
 Supports classic translation APIs as well as LLM backends, including fully local models via Ollama.
@@ -38,7 +38,7 @@ For sensitive repositories, local Ollama models are the recommended setup.
 
 ## Requirements
 
-- Neovim 0.8+
+- Neovim 0.10+
 - `curl`
 - [plenary.nvim](https://github.com/nvim-lua/plenary.nvim) (required)
 - Tree-sitter parser support for the languages you want to inspect (recommended)
@@ -93,14 +93,69 @@ vim.keymap.set('n', '<leader>th', '<cmd>CommentTranslateHover<CR>', { silent = t
 ### Immersive Translation
 
 ```vim
-:CommentTranslateToggle
+:ImmersiveTranslateToggle
 ```
+
+In `markdown` and `text` buffers this renders a bilingual reading view: each
+paragraph, heading, quote and list item gets its translation shown directly
+beneath it as virtual lines. The file itself is never modified — translations
+live only in the display layer, so buffer contents, undo history and
+`changedtick` are untouched and the mode is safe to leave on while editing.
+
+Translation is driven by what you are actually reading. Paragraphs in the
+window are fetched first, a band above and below is prefetched so scrolling
+stays smooth, and the rest waits. Long documents therefore become readable
+immediately instead of after the whole file has been translated.
+
+Fenced code blocks, front matter, HTML blocks, tables and indented code are
+skipped. Links keep their visible label and lose their URL, and images are
+removed entirely, so no URL is ever sent to the translation service.
+
+In other filetypes the same command keeps the previous behaviour of
+translating comments and strings.
+
+| Command | Action |
+|---|---|
+| `:ImmersiveTranslateToggle` | Turn immersive translation on or off |
+| `:ImmersiveTranslateRefresh` | Re-extract and refresh the current buffer |
+| `:ImmersiveTranslateRefresh!` | As above, but also drop this buffer's cached translations |
+| `:ImmersiveTranslateClearCache` | Empty the in-memory cache and refetch the visible region |
+
+The previous `:CommentTranslateToggle` and `:CommentTranslateUpdate` names
+remain available.
 
 ### Replace Selected Text
 
 ```vim
 :CommentTranslateReplace
 ```
+
+### Reasoning Models
+
+Reasoning ("thinking") models are supported and disabled by default, since
+translation rarely needs deliberation and reasoning adds latency and cost.
+
+```lua
+require('comment-translate').setup({
+  translate_service = 'llm',
+  llm = {
+    provider = 'openai',      -- or 'anthropic'
+    model = 'deepseek-v4-flash',
+    endpoint = 'https://api.deepseek.com/v1/chat/completions',
+    reasoning = {
+      enabled = true,
+      effort = 'high',        -- openai/ollama-shaped providers
+      budget_tokens = 1024,   -- anthropic-shaped providers
+    },
+  },
+})
+```
+
+`effort` is sent as `reasoning_effort` to OpenAI-compatible endpoints;
+`budget_tokens` becomes an Anthropic `thinking` block, with `max_tokens` raised
+above the budget and `temperature` omitted, as that API requires. Reasoning
+traces are never rendered: Anthropic `thinking` blocks and OpenAI
+`reasoning_content` fields are ignored, and only the translation is shown.
 
 ## Configuration Example
 
@@ -118,6 +173,16 @@ require('comment-translate').setup({
   },
 
   immersive = {
+    -- Filetypes read as documents; everything else translates comments only.
+    mode_by_filetype = { markdown = 'document', text = 'document' },
+    default_mode = 'comment',
+    viewport = true,       -- fetch what is on screen first
+    prefetch_lines = 40,   -- buffer lines above/below the window to prefetch
+    concurrency = 2,       -- max simultaneous requests, shared across buffers
+    debounce_ms = 120,     -- quiet period after scrolling
+    min_chars = 3,         -- skip targets shorter than this
+    max_target_length = 3000,
+    render = { hl_group = 'Comment', prefix = '' },
     enabled = false,
   },
 

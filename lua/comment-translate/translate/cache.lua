@@ -49,17 +49,15 @@ local function evict_lru()
   end
 end
 
----@param text string
+---Store a value under an already-composed cache key.
+---Used by the translate facade, which owns profile-aware key construction.
+---@param key string
 ---@param translated_text string
----@param target_lang string
----@param source_lang? string
-function M.set(text, translated_text, target_lang, source_lang)
+function M.set_by_key(key, translated_text)
   local config = require('comment-translate.config')
   if not config.config.cache.enabled then
     return
   end
-
-  local key = make_key(text, target_lang, source_lang)
 
   if cache[key] then
     cache[key] = translated_text
@@ -80,24 +78,50 @@ function M.set(text, translated_text, target_lang, source_lang)
   table.insert(lru_keys, key)
 end
 
----@param text string
----@param target_lang string
----@param source_lang? string
+---Look up a value by an already-composed cache key.
+---@param key string
 ---@return string?
-function M.get(text, target_lang, source_lang)
+function M.get_by_key(key)
   local config = require('comment-translate.config')
   if not config.config.cache.enabled then
     return nil
   end
 
-  local key = make_key(text, target_lang, source_lang)
   local value = cache[key]
-
   if value then
     touch_key(key)
   end
 
   return value
+end
+
+---Remove a single entry by key. Other entries are untouched.
+---@param key string
+function M.del_by_key(key)
+  if cache[key] == nil then
+    return
+  end
+  cache[key] = nil
+  local idx = find_key_index(key)
+  if idx then
+    table.remove(lru_keys, idx)
+  end
+end
+
+---@param text string
+---@param translated_text string
+---@param target_lang string
+---@param source_lang? string
+function M.set(text, translated_text, target_lang, source_lang)
+  M.set_by_key(make_key(text, target_lang, source_lang), translated_text)
+end
+
+---@param text string
+---@param target_lang string
+---@param source_lang? string
+---@return string?
+function M.get(text, target_lang, source_lang)
+  return M.get_by_key(make_key(text, target_lang, source_lang))
 end
 
 function M.clear()

@@ -76,6 +76,21 @@ local default_config = {
   },
   immersive = {
     enabled = false,
+    mode_by_filetype = {
+      markdown = 'document',
+      text = 'document',
+    },
+    default_mode = 'comment',
+    viewport = true,
+    prefetch_lines = 40,
+    concurrency = 2,
+    debounce_ms = 120,
+    min_chars = 3,
+    max_target_length = 3000,
+    render = {
+      hl_group = 'Comment',
+      prefix = '',
+    },
   },
   cache = {
     enabled = true,
@@ -154,10 +169,86 @@ local function validate(user_config)
   end
 
   if user_config.immersive then
-    warn_unknown('immersive', user_config.immersive, { enabled = true })
+    warn_unknown('immersive', user_config.immersive, {
+      enabled = true,
+      mode_by_filetype = true,
+      default_mode = true,
+      viewport = true,
+      prefetch_lines = true,
+      concurrency = true,
+      debounce_ms = true,
+      min_chars = true,
+      max_target_length = true,
+      render = true,
+    })
     vim.validate({
       ['immersive.enabled'] = { user_config.immersive.enabled, 'boolean', true },
+      ['immersive.mode_by_filetype'] = { user_config.immersive.mode_by_filetype, 'table', true },
+      ['immersive.default_mode'] = { user_config.immersive.default_mode, 'string', true },
+      ['immersive.viewport'] = { user_config.immersive.viewport, 'boolean', true },
+      ['immersive.prefetch_lines'] = { user_config.immersive.prefetch_lines, 'number', true },
+      ['immersive.concurrency'] = { user_config.immersive.concurrency, 'number', true },
+      ['immersive.debounce_ms'] = { user_config.immersive.debounce_ms, 'number', true },
+      ['immersive.min_chars'] = { user_config.immersive.min_chars, 'number', true },
+      ['immersive.max_target_length'] = {
+        user_config.immersive.max_target_length,
+        'number',
+        true,
+      },
+      ['immersive.render'] = { user_config.immersive.render, 'table', true },
     })
+
+    if user_config.immersive.concurrency and user_config.immersive.concurrency < 1 then
+      vim.notify(
+        'comment-translate: immersive.concurrency must be >= 1, defaulting to 1',
+        vim.log.levels.WARN
+      )
+      user_config.immersive.concurrency = 1
+    end
+
+    if user_config.immersive.prefetch_lines and user_config.immersive.prefetch_lines < 0 then
+      vim.notify(
+        'comment-translate: immersive.prefetch_lines must be >= 0, defaulting to 0',
+        vim.log.levels.WARN
+      )
+      user_config.immersive.prefetch_lines = 0
+    end
+
+    if user_config.immersive.render then
+      warn_unknown('immersive.render', user_config.immersive.render, {
+        hl_group = true,
+        prefix = true,
+      })
+      vim.validate({
+        ['immersive.render.hl_group'] = { user_config.immersive.render.hl_group, 'string', true },
+        ['immersive.render.prefix'] = { user_config.immersive.render.prefix, 'string', true },
+      })
+    end
+  end
+
+  if user_config.llm and user_config.llm.reasoning then
+    warn_unknown('llm.reasoning', user_config.llm.reasoning, {
+      enabled = true,
+      effort = true,
+      budget_tokens = true,
+    })
+    vim.validate({
+      ['llm.reasoning.enabled'] = { user_config.llm.reasoning.enabled, 'boolean', true },
+      ['llm.reasoning.effort'] = { user_config.llm.reasoning.effort, 'string', true },
+      ['llm.reasoning.budget_tokens'] = {
+        user_config.llm.reasoning.budget_tokens,
+        'number',
+        true,
+      },
+    })
+
+    if user_config.llm.reasoning.budget_tokens and user_config.llm.reasoning.budget_tokens < 1 then
+      vim.notify(
+        'comment-translate: llm.reasoning.budget_tokens must be >= 1, defaulting to 1024',
+        vim.log.levels.WARN
+      )
+      user_config.llm.reasoning.budget_tokens = 1024
+    end
   end
 
   if user_config.cache then
@@ -192,11 +283,13 @@ local function validate(user_config)
       endpoint = true,
       system_prompt = true,
       timeout = true,
+      reasoning = true,
     })
     vim.validate({
       ['llm.provider'] = { user_config.llm.provider, 'string', true },
       ['llm.api_key'] = { user_config.llm.api_key, 'string', true },
       ['llm.model'] = { user_config.llm.model, 'string', true },
+      ['llm.reasoning'] = { user_config.llm.reasoning, 'table', true },
       ['llm.endpoint'] = { user_config.llm.endpoint, 'string', true },
       ['llm.system_prompt'] = { user_config.llm.system_prompt, 'string', true },
       ['llm.timeout'] = { user_config.llm.timeout, 'number', true },

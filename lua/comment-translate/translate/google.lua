@@ -1,5 +1,4 @@
 local M = {}
-local cache = require('comment-translate.translate.cache')
 local curl_config = require('comment-translate.translate.curl_config')
 local utils = require('comment-translate.utils')
 
@@ -29,14 +28,6 @@ end
 function M.translate(text, target_lang, source_lang, callback)
   if not callback then
     error('callback is required')
-  end
-
-  local cached = cache.get(text, target_lang, source_lang)
-  if cached then
-    vim.schedule(function()
-      callback(cached)
-    end)
-    return
   end
 
   if utils.is_empty(text) then
@@ -133,7 +124,6 @@ function M.translate(text, target_lang, source_lang, callback)
           return
         end
 
-        cache.set(text, translated_text, target_lang, source_lang)
         callback(translated_text)
       end)
     end,

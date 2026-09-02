@@ -1,5 +1,4 @@
 local M = {}
-local cache = require('comment-translate.translate.cache')
 local curl_config = require('comment-translate.translate.curl_config')
 local utils = require('comment-translate.utils')
 
@@ -175,9 +174,19 @@ end
 ---@param system_prompt string
 ---@param user_prompt string
 ---@return table
-local function build_payload(provider, model, system_prompt, user_prompt)
+---@param llm_config table
+---@return table? -- nil when reasoning is not enabled
+local function resolve_reasoning(llm_config)
+  local reasoning = llm_config.reasoning
+  if type(reasoning) ~= 'table' or not reasoning.enabled then
+    return nil
+  end
+  return reasoning
+end
+
+local function build_payload(provider, model, system_prompt, user_prompt, reasoning)
   if provider == 'anthropic' then
-    return {
+    local payload = {
       model = model,
       max_tokens = 1024,
       temperature = 0,
@@ -186,6 +195,17 @@ local function build_payload(provider, model, system_prompt, user_prompt)
         { role = 'user', content = user_prompt },
       },
     }
+
+    if reasoning then
+      local budget = reasoning.budget_tokens or 1024
+      payload.thinking = { type = 'enabled', budget_tokens = budget }
+      -- max_tokens covers thinking plus the reply, so it must exceed the
+      -- budget; and extended thinking rejects an explicit temperature.
+      payload.max_tokens = budget + 1024
+      payload.temperature = nil
+    end
+
+    return payload
   end
 
   if provider == 'gemini' then
@@ -209,7 +229,7 @@ local function build_payload(provider, model, system_prompt, user_prompt)
   end
 
   if provider == 'ollama' then
-    return {
+    local payload = {
       model = model,
       stream = false,
       messages = {
@@ -220,9 +240,15 @@ local function build_payload(provider, model, system_prompt, user_prompt)
         temperature = 0,
       },
     }
+
+    if reasoning then
+      payload.think = true
+    end
+
+    return payload
   end
 
-  return {
+  local payload = {
     model = model,
     temperature = 0,
     messages = {
@@ -230,6 +256,14 @@ local function build_payload(provider, model, system_prompt, user_prompt)
       { role = 'user', content = user_prompt },
     },
   }
+
+  if reasoning then
+    -- OpenAI-compatible gateways (DeepSeek among them) take a graded effort
+    -- rather than a token budget.
+    payload.reasoning_effort = reasoning.effort or 'low'
+  end
+
+  return payload
 end
 
 ---@param provider string
@@ -265,14 +299,6 @@ end
 function M.translate(text, target_lang, source_lang, callback)
   if not callback then
     error('callback is required')
-  end
-
-  local cached = cache.get(text, target_lang, source_lang)
-  if cached then
-    vim.schedule(function()
-      callback(cached)
-    end)
-    return
   end
 
   if utils.is_empty(text) then
@@ -336,10 +362,17 @@ function M.translate(text, target_lang, source_lang, callback)
 
   local normalized_target_lang = utils.normalize_lang_code(target_lang)
   local normalized_source_lang = source_lang and utils.normalize_lang_code(source_lang) or 'auto'
+  -- The source text is delimited rather than appended after the instructions.
+  -- With a bare "translate the following" prompt, reasoning models frequently
+  -- decide no text was supplied and reply asking for input; measured against
+  -- deepseek-v4-flash that happened on roughly 1 in 4 short paragraphs, and
+  -- the refusal is then rendered as if it were the translation.
   local system_prompt = config.config.llm.system_prompt
-    or 'You are a translation engine. Return only the translated text. Do not add explanations.'
+    or 'You are a translation engine. Translate the text between <text> tags '
+      .. 'into the requested language. Return only the translation, with no '
+      .. 'explanation, and never ask for input.'
   local user_prompt = string.format(
-    'Translate the following text from %s to %s. Return only translated text.\n\n%s',
+    'Translate from %s into %s.\n\n<text>\n%s\n</text>',
     normalized_source_lang,
     normalized_target_lang,
     text
@@ -356,7 +389,9 @@ function M.translate(text, target_lang, source_lang, callback)
     return
   end
 
-  local payload = build_payload(provider, config.config.llm.model, system_prompt, user_prompt)
+  local reasoning = resolve_reasoning(config.config.llm)
+  local payload =
+    build_payload(provider, config.config.llm.model, system_prompt, user_prompt, reasoning)
   local headers = build_headers(provider, api_key)
 
   local request_body = vim.fn.json_encode(payload)
@@ -408,7 +443,6 @@ function M.translate(text, target_lang, source_lang, callback)
           return
         end
 
-        cache.set(text, translated_text, normalized_target_lang, normalized_source_lang)
         callback(translated_text)
       end)
     end,
