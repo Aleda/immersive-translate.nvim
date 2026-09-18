@@ -48,9 +48,14 @@ local function uses_document_mode(bufnr)
   return mode == 'document'
 end
 
+---Pure query: must not create state. This runs on every WinScrolled
+---event, and going through get_state() would grow immersive_state with
+---an entry for every buffer ever scrolled in.
 ---@return boolean
 function M.is_immersive_enabled(bufnr)
-  return get_state(bufnr).enabled
+  bufnr = normalize_bufnr(bufnr)
+  local state = immersive_state[bufnr]
+  return state ~= nil and state.enabled
 end
 
 ---@return boolean
