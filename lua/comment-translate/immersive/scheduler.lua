@@ -251,8 +251,8 @@ end
 local function viewport_rows(bufnr, winid)
   winid = winid or vim.api.nvim_get_current_win()
 
-  local ok = pcall(vim.api.nvim_win_get_buf, winid)
-  if not ok or vim.api.nvim_win_get_buf(winid) ~= bufnr then
+  local ok, win_bufnr = pcall(vim.api.nvim_win_get_buf, winid)
+  if not ok or win_bufnr ~= bufnr then
     return 0, vim.api.nvim_buf_line_count(bufnr) - 1
   end
 
