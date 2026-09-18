@@ -222,14 +222,16 @@ pump = function()
   local config = require('comment-translate.config')
   local limit = (config.config.immersive or {}).concurrency or 2
 
-  while active < limit and #queue > 0 do
-    table.sort(queue, function(a, b)
-      if a.priority ~= b.priority then
-        return a.priority < b.priority
-      end
-      return a.seq < b.seq
-    end)
+  -- Sort once: the loop body never enqueues synchronously (new work only
+  -- arrives via schedule_all/ensure_visible, which call pump again).
+  table.sort(queue, function(a, b)
+    if a.priority ~= b.priority then
+      return a.priority < b.priority
+    end
+    return a.seq < b.seq
+  end)
 
+  while active < limit and #queue > 0 do
     local job = table.remove(queue, 1)
 
     if is_current(job) then
@@ -249,8 +251,8 @@ end
 local function viewport_rows(bufnr, winid)
   winid = winid or vim.api.nvim_get_current_win()
 
-  local ok = pcall(vim.api.nvim_win_get_buf, winid)
-  if not ok or vim.api.nvim_win_get_buf(winid) ~= bufnr then
+  local ok, win_bufnr = pcall(vim.api.nvim_win_get_buf, winid)
+  if not ok or win_bufnr ~= bufnr then
     return 0, vim.api.nvim_buf_line_count(bufnr) - 1
   end
 

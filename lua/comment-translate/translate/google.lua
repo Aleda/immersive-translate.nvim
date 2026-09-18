@@ -38,7 +38,10 @@ function M.translate(text, target_lang, source_lang, callback)
   end
 
   local config = require('comment-translate.config')
-  if #text > config.config.max_length then
+  -- Characters rather than bytes: matches immersive.max_target_length, so a
+  -- CJK paragraph the scheduler let through is not rejected here and then
+  -- remembered as a permanent failure.
+  if vim.fn.strchars(text) > config.config.max_length then
     vim.schedule(function()
       callback(nil)
     end)

@@ -79,18 +79,30 @@ local function wrap_line(line, width)
     return { line }
   end
 
+  -- Widths are tracked numerically: each fragment is measured on its own
+  -- and the running total is kept alongside the string, so wrapping a
+  -- long line is O(n) instead of measuring ever-growing concatenations —
+  -- which matters for CJK paragraphs, one unbroken token under %S+.
+  -- Display width is additive except inside grapheme clusters; summing
+  -- per-character widths can overcount those, and overcounting only ever
+  -- wraps one character early, never late, so lines cannot overflow.
   local out = {}
   local current = ''
+  local current_width = 0
 
   ---@param piece string
   local function push(piece)
+    local piece_width = vim.fn.strdisplaywidth(piece)
     if current == '' then
       current = piece
-    elseif vim.fn.strdisplaywidth(current .. ' ' .. piece) <= width then
+      current_width = piece_width
+    elseif current_width + 1 + piece_width <= width then
       current = current .. ' ' .. piece
+      current_width = current_width + 1 + piece_width
     else
       table.insert(out, current)
       current = piece
+      current_width = piece_width
     end
   end
 
@@ -98,18 +110,21 @@ local function wrap_line(line, width)
   ---@param token string
   local function push_oversized(token)
     local chunk = ''
+    local chunk_width = 0
     for _, char in ipairs(vim.fn.split(token, '\\zs')) do
-      if vim.fn.strdisplaywidth(chunk .. char) > width then
-        if chunk ~= '' then
-          if current ~= '' then
-            table.insert(out, current)
-            current = ''
-          end
-          table.insert(out, chunk)
+      local char_width = vim.fn.strdisplaywidth(char)
+      if chunk ~= '' and chunk_width + char_width > width then
+        if current ~= '' then
+          table.insert(out, current)
+          current = ''
+          current_width = 0
         end
+        table.insert(out, chunk)
         chunk = char
+        chunk_width = char_width
       else
         chunk = chunk .. char
+        chunk_width = chunk_width + char_width
       end
     end
     if chunk ~= '' then
