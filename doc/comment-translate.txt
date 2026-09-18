@@ -175,8 +175,10 @@ Options:
     Default: false
 
 *comment-translate.max_length*
-    Maximum source text length accepted for one translation request.
-    Longer text is not sent to the translation service.
+    Maximum source text length accepted for one translation request,
+    measured in characters (not bytes, matching the character-based
+    immersive max_target_length option). Longer text is not sent to the
+    translation service.
     Default: 5000
 
 *comment-translate.targets.comment*
